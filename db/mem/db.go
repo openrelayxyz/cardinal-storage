@@ -85,6 +85,12 @@ type viewTransaction struct {
   returnedValues map[string][]byte
 }
 
+type memIterator struct {
+  tx dbpkg.Transaction
+  keyCh chan []byte
+  key []byte
+}
+
 func (tx *viewTransaction) Get(key []byte) ([]byte, error) {
   if val, ok := tx.db.data[string(key)]; ok {
     tx.returnedValues[string(key)] = val
@@ -105,6 +111,38 @@ func (tx *viewTransaction) PutReserve([]byte, int) ([]byte, error) {
 
 func (tx *viewTransaction) Delete([]byte) error {
   return errors.New("Attempted Write to View Transaction")
+}
+
+func (tx *viewTransaction) Iterator(prefix []byte) dbpkg.Iterator {
+  iter := &memIterator{
+    tx: tx,
+    keyCh: make(chan []byte),
+  }
+  go func() {
+    for k := range tx.db.data {
+      kb := []byte(k)
+      if bytes.HasPrefix(kb, prefix) {
+        iter.keyCh <- kb
+      }
+    }
+    close(iter.keyCh)
+  }()
+  return iter
+}
+
+func (iter *memIterator) Next() bool {
+  var ok bool
+  iter.key, ok = <-iter.keyCh
+  return ok
+}
+
+func (iter *memIterator) Key() []byte {
+  return iter.key
+}
+
+func (iter *memIterator) Value() []byte {
+  k, _ := iter.tx.Get(iter.key)
+  return k
 }
 
 
@@ -152,6 +190,31 @@ func (tx *fullTransaction) Delete(key []byte) error {
   delete(tx.changes, string(key))
   tx.deletes[string(key)] = struct{}{}
   return nil
+}
+
+func (tx *fullTransaction) Iterator(prefix []byte) dbpkg.Iterator {
+  iter := &memIterator{
+    tx: tx,
+    keyCh: make(chan []byte),
+  }
+  go func() {
+    for k := range tx.changes {
+      kb := []byte(k)
+      if bytes.HasPrefix(kb, prefix) {
+        iter.keyCh <- kb
+      }
+    }
+    for k := range tx.db.data {
+      if _, ok := tx.changes[k]; ok { continue }
+      if _, ok := tx.deletes[k]; ok { continue }
+      kb := []byte(k)
+      if bytes.HasPrefix(kb, prefix) {
+        iter.keyCh <- kb
+      }
+    }
+    close(iter.keyCh)
+  }()
+  return iter
 }
 
 func (tx *fullTransaction) apply(data map[string][]byte) error {

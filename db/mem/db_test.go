@@ -46,3 +46,28 @@ func TestAlterGetTx(t *testing.T) {
   })
   if err == nil { t.Fatalf("Expected failure") }
 }
+func TestIterTx(t *testing.T){
+  db := NewMemoryDatabase(1024)
+  db.Update(func(tx dbpkg.Transaction) error {
+    tx.Put([]byte("Hello"), []byte("World"))
+    iter := tx.Iterator([]byte("H"))
+    if !iter.Next() { t.Errorf("Iterator should have had next item") }
+    if string(iter.Key()) != "Hello" { t.Errorf("Unexpected key")}
+    if string(iter.Value()) != "World" { t.Errorf("Unexpected value")}
+    if iter.Next() { t.Errorf("Iterator should have been exhausted") }
+    return nil
+  })
+  db.View(func(tx dbpkg.Transaction) error {
+    iter := tx.Iterator([]byte("H"))
+    if !iter.Next() { t.Errorf("Iterator should have had next item") }
+    if string(iter.Key()) != "Hello" { t.Errorf("Unexpected key")}
+    if string(iter.Value()) != "World" { t.Errorf("Unexpected value")}
+    if iter.Next() { t.Errorf("Iterator should have been exhausted") }
+    return nil
+  })
+  db.View(func(tx dbpkg.Transaction) error {
+    iter := tx.Iterator([]byte("Q"))
+    if iter.Next() { t.Errorf("Iterator should have been exhausted") }
+    return nil
+  })
+}
