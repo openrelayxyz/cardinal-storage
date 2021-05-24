@@ -8,13 +8,63 @@ import (
   "github.com/openrelayxyz/cardinal-types"
   "github.com/openrelayxyz/cardinal-storage"
   "github.com/openrelayxyz/cardinal-storage/db"
+  // "log"
 )
 
+// TODO: We should have a way to specify `number = hash` for some set of
+// blocks, similar to Geth's --whitelist flag. This would make sure that in the
+// event of a reorg larger than maxDepth we could manually indicate which side
+// of the split to be on and ignore blocks on the other side of the split.
 type currentStorage struct {
   db db.Database
   layers map[types.Hash]layer
   latestHash types.Hash
-  reorgDepth uint64
+}
+
+// New starts a currentStorage instance from an empty database.
+func New(sdb db.Database, maxDepth int64) (storage.Storage) {
+  s := &currentStorage{
+    db: sdb,
+    layers: make(map[types.Hash]layer),
+  }
+  s.layers[types.Hash{}] = &diskLayer{
+    storage: s,
+    h: types.Hash{},
+    num: 0,
+    blockWeight: new(big.Int),
+    children: make(map[types.Hash]*memoryLayer),
+    depth: 0,
+    maxDepth: maxDepth,
+  }
+  return  s
+}
+
+// Open loads a currentStorage instance from a loaded database
+func Open(sdb db.Database, maxDepth int64) (storage.Storage, error) {
+  s := &currentStorage{
+    db: sdb,
+    layers: make(map[types.Hash]layer),
+  }
+  if err := sdb.View(func(tr db.Transaction) error {
+    hashBytes, err := tr.Get(LatestBlockHashKey)
+    if err != nil { return err }
+    blockHash := types.BytesToHash(hashBytes)
+    numBytes, err := tr.Get(HashToNumKey(blockHash))
+    if err != nil  { return err }
+    weightBytes, err := tr.Get(LatestBlockWeightKey)
+    if err != nil  { return err }
+    s.layers[blockHash] = &diskLayer{
+      storage: s,
+      h: blockHash,
+      num: binary.BigEndian.Uint64(numBytes),
+      blockWeight: new(big.Int).SetBytes(weightBytes),
+      children: make(map[types.Hash]*memoryLayer),
+      depth: 0,
+      maxDepth: maxDepth,
+   }
+   return nil
+  }); err != nil { return nil, err }
+  return s, nil
 }
 
 // View returns a transaction for interfacing with the layer indicated by the
@@ -22,7 +72,7 @@ type currentStorage struct {
 func (s *currentStorage) View(hash types.Hash, fn func(storage.Transaction) error) error {
   layer, ok := s.layers[hash]
   if !ok {
-    return fmt.Errorf("Layer unavailable for hash %#x", hash)
+    return ErrLayerNotFound
   }
   return s.db.View(func(tr db.Transaction) error {
     ctr := &currentTransaction{
@@ -43,7 +93,7 @@ func (s *currentStorage) View(hash types.Hash, fn func(storage.Transaction) erro
 func (s *currentStorage) AddBlock(hash, parentHash types.Hash, blockData []storage.KeyValue, number uint64, weight *big.Int, destructs [][]byte, stateUpdates []storage.KeyValue, resumption []byte) error {
   parentLayer, ok := s.layers[parentHash]
   if !ok {
-    return fmt.Errorf("Parent block %#x missing", parentHash)
+    return ErrLayerNotFound
   }
   newLayer := &memoryLayer{
     hash: hash,
@@ -52,9 +102,12 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, blockData []stora
     blockWeight: weight,
     blockDataMap: make(map[string][]byte),
     stateUpdatesMap: make(map[string][]byte),
+    stateUpdates: stateUpdates,
+    blockData: blockData,
     destructsMap: make(map[string]bool),
     destructs: destructs,
     resumption: resumption,
+    children: make(map[types.Hash]*memoryLayer),
   }
   s.layers[hash] = newLayer
   for _, kv := range blockData {
@@ -72,16 +125,14 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, blockData []stora
     s.latestHash = hash
   }
   // TODO: We need to consolidate the parent layers up into the disk layer
-  parentLayer.consolidate(
-    newLayer.hash,
-    newLayer.blockWeight,
-    newLayer.blockData,
-    newLayer.num,
-    newLayer.destructs,
-    newLayer.stateUpdates,
-    newLayer.resumption,
-    newLayer.reorgDepth <= 0,
-  )
+  changes, deletions, err := parentLayer.consolidate(newLayer)
+  if err != nil { return err }
+  for h, l := range changes {
+    s.layers[h] = l
+  }
+  for d := range deletions {
+    delete(s.layers, d)
+  }
   return nil
 }
 
@@ -95,7 +146,7 @@ func (s *currentStorage) LatestHash() types.Hash {
 func (s *currentStorage) NumberToHash(num uint64) (types.Hash, error) {
   layer := s.layers[s.latestHash]
   if layer.number() < num {
-    fmt.Errorf("Requested hash of future block %v", num)
+    return types.Hash{}, fmt.Errorf("Requested hash of future block %v", num)
   }
   for layer != nil && num > layer.number() {
     layer = layer.parentLayer()
@@ -147,15 +198,20 @@ type memoryLayer struct {
   blockData []storage.KeyValue
   stateUpdates []storage.KeyValue
   resumption []byte
-  reorgDepth int64
+  depth int64
+  children map[types.Hash]*memoryLayer
 }
 
-func (l *memoryLayer) consolidate(hash types.Hash, weight *big.Int, blockData []storage.KeyValue, number uint64, destructs [][]byte, stateUpdates []storage.KeyValue, resumption []byte, merge bool) layer {
-  l.parent = l.parent.consolidate(l.hash, l.blockWeight, l.blockData, l.num, l.destructs, l.stateUpdates, l.resumption, l.reorgDepth <= 0)
-  if l.reorgDepth <= 0 {
-    return l.parent
+func (l *memoryLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[types.Hash]struct{}, error){
+  if child.depth + 1 > l.depth {
+    l.depth = child.depth + 1
   }
-  return l
+  l.children[child.hash] = child
+  changes, deletes, err := l.parent.consolidate(l)
+  if newParent, ok := changes[l.parent.getHash()]; ok {
+    l.parent = newParent
+  }
+  return changes, deletes, err
 }
 func (l *memoryLayer) number() uint64 {
   return l.num
@@ -168,6 +224,16 @@ func (l *memoryLayer) parentLayer() layer {
 }
 func (l *memoryLayer) weight() *big.Int {
   return l.blockWeight
+}
+func (l *memoryLayer) descendants() map[types.Hash]struct{} {
+  descendants := make(map[types.Hash]struct{})
+  for hash, child := range l.children {
+    descendants[hash] = struct{}{}
+    for hash := range child.descendants() {
+      descendants[hash] = struct{}{}
+    }
+  }
+  return descendants
 }
 
 func (l *memoryLayer) getState(key []byte, tr db.Transaction) ([]byte, error) {
@@ -206,7 +272,7 @@ func (l *memoryLayer) getBlockData(h types.Hash, key []byte, tr db.Transaction) 
 // NumberToHash(uint64) types.Hash
 
 type layer interface {
-  consolidate(hash types.Hash, weight *big.Int, blockData []storage.KeyValue, number uint64, destructs [][]byte, stateUpdates []storage.KeyValue, resumption []byte, merge bool) layer // Consolidates the tree
+  consolidate(*memoryLayer) (map[types.Hash]layer, map[types.Hash]struct{}, error) // Consolidates the tree
   getHash() types.Hash
   number() uint64
   getState([]byte, db.Transaction) ([]byte, error)
@@ -220,42 +286,62 @@ type diskLayer struct {
   h types.Hash
   num uint64
   blockWeight *big.Int
+  children map[types.Hash]*memoryLayer
+  depth int64
+  maxDepth int64
 }
 
 
-func (l *diskLayer) consolidate(hash types.Hash, weight *big.Int, blockData []storage.KeyValue, number uint64, destructs [][]byte, stateUpdates []storage.KeyValue, resumption []byte, merge bool) layer {
-  // TODO: Persist the data passed into consolidate() to the disk. Update the
-  // hash and num in memory. Persist the details of current layer so that upon
-  // resumption the basics of the block can be loaded into memory.
-  l.storage.db.Update(func(tr db.Transaction) error {
-    numberBytes := make([]byte, 8)
-    binary.BigEndian.PutUint64(numberBytes, number)
-    tr.Put(HashToNumKey(hash), numberBytes)
-    tr.Put(NumToHashKey(number), hash[:])
-    tr.Put(ResumptionDataKey, resumption)
-    tr.Put(LatestBlockHashKey, hash[:])
-    tr.Put(LatestBlockWeightKey, weight.Bytes())
-    for _, kv := range(blockData) {
-      tr.Put(BlockDataKey(hash, kv.Key), kv.Value)
-    }
-    for _, kv := range(stateUpdates) {
-      tr.Put(StateDataKey(kv.Key), kv.Value)
-    }
-    for _, destruct := range(destructs) {
-      iter := tr.Iterator(StateDataKey(destruct))
-      for iter.Next() {
-        // NOTE: Some database implementations may not like having keys deleted
-        // out of them while they're iterating over them. We may need to
-        // compile a list of keys to delete, then delete them after iterating.
-        tr.Delete(iter.Key())
+func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[types.Hash]struct{}, error) {
+  if child.depth + 1 > l.depth {
+    l.depth = child.depth + 1
+  }
+  changes := make(map[types.Hash]layer)
+  deletes := make(map[types.Hash]struct{})
+  if l.depth > l.maxDepth {
+    for childHash, childLayer := range l.children {
+      if childHash == child.hash { continue }
+      for h := range childLayer.descendants() {
+        deletes[h] = struct{}{}
       }
+      deletes[childHash] = struct{}{}
     }
-    l.h = hash
-    l.num = number
-    l.blockWeight = weight
-    return nil
-  })
-  return l
+    deletes[l.getHash()] = struct{}{}
+    changes[child.hash] = l
+    if err := l.storage.db.Update(func(tr db.Transaction) error {
+      numberBytes := make([]byte, 8)
+      binary.BigEndian.PutUint64(numberBytes, child.number())
+      tr.Put(HashToNumKey(child.hash), numberBytes)
+      tr.Put(NumToHashKey(child.number()), child.hash[:])
+      tr.Put(ResumptionDataKey, child.resumption)
+      tr.Put(LatestBlockHashKey, child.hash[:])
+      tr.Put(LatestBlockWeightKey, child.weight().Bytes())
+      for _, kv := range(child.blockData) {
+        tr.Put(BlockDataKey(child.hash, kv.Key), kv.Value)
+      }
+      for _, kv := range(child.stateUpdates) {
+        tr.Put(StateDataKey(kv.Key), kv.Value)
+      }
+      for _, destruct := range(child.destructs) {
+        iter := tr.Iterator(StateDataKey(destruct))
+        for iter.Next() {
+          // NOTE: Some database implementations may not like having keys deleted
+          // out of them while they're iterating over them. We may need to
+          // compile a list of keys to delete, then delete them after iterating.
+          tr.Delete(iter.Key())
+        }
+      }
+      l.h = child.hash
+      l.num = child.number()
+      l.blockWeight = child.weight()
+      l.depth = child.depth
+      l.children = child.children
+      return nil
+    }); err != nil {
+      return nil, nil, err
+    }
+  }
+  return changes, deletes, nil
 }
 func (l *diskLayer) getHash() types.Hash {
   return l.h
@@ -276,3 +362,6 @@ func (l *diskLayer) parentLayer() layer {
 func (l *diskLayer) weight() *big.Int {
   return l.blockWeight
 }
+
+// TODO: Consider how to do an initial load of a large quantity of data into
+// the disk layer.

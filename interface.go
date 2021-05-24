@@ -13,7 +13,7 @@ type KeyValue struct {
 type Storage interface {
   // View returns a transaction for interfacing with the layer indicated by the
   // specified hash.
-  View(types.Hash, func(Transaction) error)
+  View(types.Hash, func(Transaction) error) error
   // AddBlock adds a new block to the storage engine. An error will be returned
   // if the parent specified does not exist. If `weight` exceeds the weight of
   // any previously handled block, this block will be returned in future calls
@@ -21,7 +21,7 @@ type Storage interface {
   // this block and eventually persisted. The `resumption` byte string will be
   // provided by the information source, so that backups recovering from this
   // storage engine can determine where to resume from.
-  AddBlock(hash, parentHash types.Hash, blockData []KeyValue, number uint64, weight big.Int, destructs [][]byte, stateUpdates []KeyValue, resumption []byte)
+  AddBlock(hash, parentHash types.Hash, blockData []KeyValue, number uint64, weight *big.Int, destructs [][]byte, stateUpdates []KeyValue, resumption []byte) error
 
   // LatestHash returns the block with the highest weight added through AddBlock
   LatestHash() types.Hash
@@ -35,3 +35,6 @@ type Transaction interface {
   GetState([]byte) ([]byte, error)
   GetBlockData(types.Hash, []byte) ([]byte, error)
 }
+
+
+var EmptyHash = types.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
