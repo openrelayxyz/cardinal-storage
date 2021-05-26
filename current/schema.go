@@ -9,8 +9,7 @@ import (
 var (
   HashToNumPrefix = []byte("h")
   NumToHashPrefix = []byte("n")
-  BlockDataPrefix = []byte("d")
-  StateDataPrefix = []byte("s")
+  DataPrefix = []byte("d")
   ResumptionDataKey = []byte("Resumption")
   LatestBlockHashKey = []byte("LatestBlockHash")
   LatestBlockWeightKey = []byte("LatestBlockWeight")
@@ -27,10 +26,6 @@ func NumToHashKey(n uint64) []byte {
   return append(NumToHashPrefix, data...)
 }
 
-func BlockDataKey(h types.Hash, key []byte) []byte {
-  return append(append(BlockDataPrefix, h[:]...), key...)
-}
-
-func StateDataKey(key []byte) []byte {
-  return append(StateDataPrefix, key...)
+func DataKey(key []byte) []byte {
+  return append(DataPrefix, key...)
 }

@@ -90,7 +90,7 @@ func (s *currentStorage) View(hash types.Hash, fn func(storage.Transaction) erro
 // this block and eventually persisted. The `resumption` byte string will be
 // provided by the information source, so that backups recovering from this
 // storage engine can determine where to resume from.
-func (s *currentStorage) AddBlock(hash, parentHash types.Hash, blockData []storage.KeyValue, number uint64, weight *big.Int, destructs [][]byte, stateUpdates []storage.KeyValue, resumption []byte) error {
+func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, weight *big.Int, updates []storage.KeyValue, deletes [][]byte, resumption []byte) error {
   parentLayer, ok := s.layers[parentHash]
   if !ok {
     return ErrLayerNotFound
@@ -100,25 +100,19 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, blockData []stora
     parent: parentLayer,
     num: number,
     blockWeight: weight,
-    blockDataMap: make(map[string][]byte),
-    stateUpdatesMap: make(map[string][]byte),
-    stateUpdates: stateUpdates,
-    blockData: blockData,
-    destructsMap: make(map[string]bool),
-    destructs: destructs,
+    updatesMap: make(map[string][]byte),
+    updates: updates,
+    deletesMap: make(map[string]struct{}),
+    deletes: deletes,
     resumption: resumption,
     children: make(map[types.Hash]*memoryLayer),
   }
   s.layers[hash] = newLayer
-  for _, kv := range blockData {
-    newLayer.blockDataMap[string(kv.Key)] = kv.Value
+  for _, kv := range updates {
+    newLayer.updatesMap[string(kv.Key)] = kv.Value
   }
-  for _, kv := range stateUpdates {
-    newLayer.stateUpdatesMap[string(kv.Key)] = kv.Value
-  }
-  for _, k := range destructs {
-    newLayer.destructsMap[string(k)] = true
-
+  for _, k := range deletes {
+    newLayer.deletesMap[string(k)] = struct{}{}
   }
   if weight.Cmp(newLayer.weight()) > 0 {
     // TODO: Maybe need to use an atomic value for s.latestHash
@@ -165,17 +159,13 @@ type currentTransaction struct {
   layer layer
 }
 
-func (t *currentTransaction) GetState(key []byte) ([]byte, error) {
-  return t.layer.getState(key, t.transaction)
-}
-
-func (t *currentTransaction) GetBlockData(h types.Hash, key []byte) ([]byte, error) {
-  return t.layer.getBlockData(h, key, t.transaction)
+func (t *currentTransaction) Get(key []byte) ([]byte, error) {
+  return t.layer.get(key, t.transaction)
 }
 
 // type Storage interface {
 //   View(types.Hash, func(Transaction) error)
-//   AddBlock(hash, parentHash types.Hash, blockData []storage.KeyValue, number uint64, weight big.Int, destructs [][]byte, stateUpdates []storage.KeyValue)
+//   AddBlock(hash, parentHash types.Hash, blockData []storage.KeyValue, number uint64, weight big.Int, deletes [][]byte, stateUpdates []storage.KeyValue)
 //   LatestHash() types.Hash
 //   NumberToHash(uint64) types.Hash
 // }
@@ -191,12 +181,10 @@ type memoryLayer struct {
   num uint64
   hash types.Hash
   blockWeight *big.Int
-  blockDataMap map[string][]byte
-  stateUpdatesMap map[string][]byte
-  destructsMap map[string]bool
-  destructs [][]byte
-  blockData []storage.KeyValue
-  stateUpdates []storage.KeyValue
+  updatesMap map[string][]byte
+  updates []storage.KeyValue
+  deletesMap map[string]struct{}
+  deletes [][]byte
   resumption []byte
   depth int64
   children map[types.Hash]*memoryLayer
@@ -236,47 +224,30 @@ func (l *memoryLayer) descendants() map[types.Hash]struct{} {
   return descendants
 }
 
-func (l *memoryLayer) getState(key []byte, tr db.Transaction) ([]byte, error) {
-  if l.isDestructed(key) {
+func (l *memoryLayer) get(key []byte, tr db.Transaction) ([]byte, error) {
+  if l.isDeleted(key) {
     return []byte{}, ErrNotFound
   }
-  if val, ok := l.stateUpdatesMap[string(key)]; ok {
+  if val, ok := l.updatesMap[string(key)]; ok {
     return val, nil
   }
-  return l.parent.getState(key, tr)
+  return l.parent.get(key, tr)
 }
 
-func (l *memoryLayer) isDestructed(key []byte) bool {
+func (l *memoryLayer) isDeleted(key []byte) bool {
   components := bytes.Split(key, []byte("/"))
   for i := 1; i <= len(components); i++ {
-    if l.destructsMap[string(bytes.Join(components[:i], []byte("/")))] {
+    if _, ok := l.deletesMap[string(bytes.Join(components[:i], []byte("/")))]; ok {
       return true
     }
   }
   return false
 }
-func (l *memoryLayer) getBlockData(h types.Hash, key []byte, tr db.Transaction) ([]byte, error) {
-  if l.hash != h {
-    return l.parent.getBlockData(h, key, tr)
-  }
-  if val, ok := l.blockDataMap[string(key)]; ok {
-    return val, nil
-  }
-  return []byte{}, ErrNotFound
-}
-
-
-// View(types.Hash, func(Transaction) error)
-// AddBlock(hash, parentHash types.Hash, blockData []storage.KeyValue, number uint64, weight big.Int, destructs [][]byte, stateUpdates []storage.KeyValue)
-// LatestHash() types.Hash
-// NumberToHash(uint64) types.Hash
-
 type layer interface {
   consolidate(*memoryLayer) (map[types.Hash]layer, map[types.Hash]struct{}, error) // Consolidates the tree
   getHash() types.Hash
   number() uint64
-  getState([]byte, db.Transaction) ([]byte, error)
-  getBlockData(types.Hash, []byte, db.Transaction) ([]byte, error)
+  get([]byte, db.Transaction) ([]byte, error)
   parentLayer() layer
   weight() *big.Int
 }
@@ -316,14 +287,11 @@ func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[t
       tr.Put(ResumptionDataKey, child.resumption)
       tr.Put(LatestBlockHashKey, child.hash[:])
       tr.Put(LatestBlockWeightKey, child.weight().Bytes())
-      for _, kv := range(child.blockData) {
-        tr.Put(BlockDataKey(child.hash, kv.Key), kv.Value)
+      for _, kv := range(child.updates) {
+        tr.Put(DataKey(kv.Key), kv.Value)
       }
-      for _, kv := range(child.stateUpdates) {
-        tr.Put(StateDataKey(kv.Key), kv.Value)
-      }
-      for _, destruct := range(child.destructs) {
-        iter := tr.Iterator(StateDataKey(destruct))
+      for _, deletKey := range(child.deletes) {
+        iter := tr.Iterator(DataKey(deletKey))
         for iter.Next() {
           // NOTE: Some database implementations may not like having keys deleted
           // out of them while they're iterating over them. We may need to
@@ -349,11 +317,8 @@ func (l *diskLayer) getHash() types.Hash {
 func (l *diskLayer) number() uint64 {
   return l.num
 }
-func (l *diskLayer) getState(key []byte, tr db.Transaction) ([]byte, error) {
-  return tr.Get(StateDataKey(key))
-}
-func (l *diskLayer) getBlockData(h types.Hash, key []byte, tr db.Transaction) ([]byte, error) {
-  return tr.Get(BlockDataKey(h, key))
+func (l *diskLayer) get(key []byte, tr db.Transaction) ([]byte, error) {
+  return tr.Get(DataKey(key))
 }
 func (l *diskLayer) parentLayer() layer {
   return nil

@@ -21,7 +21,7 @@ type Storage interface {
   // this block and eventually persisted. The `resumption` byte string will be
   // provided by the information source, so that backups recovering from this
   // storage engine can determine where to resume from.
-  AddBlock(hash, parentHash types.Hash, blockData []KeyValue, number uint64, weight *big.Int, destructs [][]byte, stateUpdates []KeyValue, resumption []byte) error
+  AddBlock(hash, parentHash types.Hash, number uint64, weight *big.Int, updates []KeyValue, deletes [][]byte, resumption []byte) error
 
   // LatestHash returns the block with the highest weight added through AddBlock
   LatestHash() types.Hash
@@ -32,8 +32,7 @@ type Storage interface {
 }
 
 type Transaction interface {
-  GetState([]byte) ([]byte, error)
-  GetBlockData(types.Hash, []byte) ([]byte, error)
+  Get([]byte) ([]byte, error)
 }
 
 
