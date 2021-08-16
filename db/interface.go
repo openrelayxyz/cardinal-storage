@@ -7,6 +7,7 @@ type Database interface {
   View(func(Transaction) error) error
   // Update provides a Transaction tht can be used to read from or write to the database
   Update(func(Transaction) error) error
+  Close()
 }
 
 // Transaction allows for atomic interaction with the database. It can be used
@@ -18,6 +19,11 @@ type Transaction interface {
   // value returned here is unsafe, and transactions may return an error if
   // this value is modified.
   Get([]byte) ([]byte, error)
+  // ZeroCopyGet invokes a closure, providing the value stored at the specified
+  // key. This value must only be accessed within the closure, and the slice
+  // may be modified after the closure finishes executing. The data must be
+  // parsed and / or copied within the closure.
+  ZeroCopyGet([]byte, func([]byte) error) error
   // Put sets a value at a specified key
   Put([]byte, []byte) error
   // PutReserve returns a byte slice of the specified size that can be updated
@@ -49,6 +55,8 @@ type Iterator interface {
   // that depending on the database implementation, accessing values may be
   // considerably more expensive than just accessing keys.
   Value() []byte
+  Error() error
+  Close() error
 }
 
 

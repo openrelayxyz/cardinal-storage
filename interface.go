@@ -1,6 +1,7 @@
 package storage
 
 import (
+  "fmt"
   "math/big"
   "github.com/openrelayxyz/cardinal-types"
 )
@@ -8,6 +9,10 @@ import (
 type KeyValue struct {
   Key []byte
   Value []byte
+}
+
+func (kv KeyValue) String() string {
+  return fmt.Sprintf(`{"%x": "%x"}`, kv.Key, kv.Value)
 }
 
 type Storage interface {
@@ -33,6 +38,7 @@ type Storage interface {
 
 type Transaction interface {
   Get([]byte) ([]byte, error)
+  ZeroCopyGet([]byte, func([]byte) error) error
 }
 
 

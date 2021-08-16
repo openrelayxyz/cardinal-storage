@@ -7,6 +7,7 @@ import (
   "fmt"
   "testing"
   dbpkg "github.com/openrelayxyz/cardinal-storage/db"
+  "github.com/openrelayxyz/cardinal-storage"
 )
 
 type Database struct {
@@ -79,6 +80,8 @@ func (db *Database) Update(fn func(tx dbpkg.Transaction) error) error {
   return tx.apply(db.data)
 }
 
+func (db *Database) Close() {}
+
 type viewTransaction struct {
   db *Database
   origValues map[string][]byte
@@ -89,6 +92,7 @@ type memIterator struct {
   tx dbpkg.Transaction
   keyCh chan []byte
   key []byte
+  quit chan struct{}
 }
 
 func (tx *viewTransaction) Get(key []byte) ([]byte, error) {
@@ -98,7 +102,13 @@ func (tx *viewTransaction) Get(key []byte) ([]byte, error) {
     copy(tx.origValues[string(key)][:], val)
     return val, nil
   }
-  return []byte{}, errors.New("Not Found")
+  return []byte{}, storage.ErrNotFound
+}
+
+func (tx *viewTransaction) ZeroCopyGet(key []byte, fn func([]byte) error) error {
+  val, err := tx.Get(key)
+  if err != nil { return err }
+  return fn(val)
 }
 
 func (tx *viewTransaction) Put([]byte, []byte) error {
@@ -117,12 +127,18 @@ func (tx *viewTransaction) Iterator(prefix []byte) dbpkg.Iterator {
   iter := &memIterator{
     tx: tx,
     keyCh: make(chan []byte),
+    quit: make(chan struct{}),
   }
   go func() {
     for k := range tx.db.data {
       kb := []byte(k)
       if bytes.HasPrefix(kb, prefix) {
-        iter.keyCh <- kb
+        select {
+        case iter.keyCh <- kb:
+        case <-iter.quit:
+          close(iter.keyCh)
+          return
+        }
       }
     }
     close(iter.keyCh)
@@ -145,6 +161,14 @@ func (iter *memIterator) Value() []byte {
   return k
 }
 
+func (iter *memIterator) Close() error {
+  return nil
+}
+
+func (iter *memIterator) Error() error {
+  return nil
+}
+
 
 type fullTransaction struct{
   db *Database
@@ -154,10 +178,16 @@ type fullTransaction struct{
   returnedValues map[string][]byte
 }
 
+func (tx *fullTransaction) ZeroCopyGet(key []byte, fn func([]byte) error) error {
+  val, err := tx.Get(key)
+  if err != nil { return err }
+  return fn(val)
+}
+
 
 func (tx *fullTransaction) Get(key []byte) ([]byte, error) {
   if _, ok := tx.deletes[string(key)]; ok {
-    return []byte{}, errors.New("Not Found")
+    return []byte{}, storage.ErrNotFound
   }
   if val, ok := tx.changes[string(key)]; ok {
     tx.returnedValues[string(key)] = val
@@ -171,7 +201,7 @@ func (tx *fullTransaction) Get(key []byte) ([]byte, error) {
     copy(tx.origValues[string(key)][:], val)
     return val, nil
   }
-  return []byte{}, errors.New("Not Found")
+  return []byte{}, storage.ErrNotFound
 }
 
 func (tx *fullTransaction) Put(key []byte, val []byte) error {

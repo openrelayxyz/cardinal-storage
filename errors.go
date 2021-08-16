@@ -1,4 +1,4 @@
-package current
+package storage
 
 import (
   "errors"

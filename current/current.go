@@ -8,7 +8,7 @@ import (
   "github.com/openrelayxyz/cardinal-types"
   "github.com/openrelayxyz/cardinal-storage"
   "github.com/openrelayxyz/cardinal-storage/db"
-  // "log"
+  log "github.com/inconshreveable/log15"
 )
 
 // TODO: We should have a way to specify `number = hash` for some set of
@@ -19,13 +19,16 @@ type currentStorage struct {
   db db.Database
   layers map[types.Hash]layer
   latestHash types.Hash
+  whitelist map[uint64]types.Hash
 }
 
 // New starts a currentStorage instance from an empty database.
-func New(sdb db.Database, maxDepth int64) (storage.Storage) {
+func New(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (storage.Storage) {
+  if whitelist == nil { whitelist = make(map[uint64]types.Hash)}
   s := &currentStorage{
     db: sdb,
     layers: make(map[types.Hash]layer),
+    whitelist: whitelist,
   }
   s.layers[types.Hash{}] = &diskLayer{
     storage: s,
@@ -72,7 +75,7 @@ func Open(sdb db.Database, maxDepth int64) (storage.Storage, error) {
 func (s *currentStorage) View(hash types.Hash, fn func(storage.Transaction) error) error {
   layer, ok := s.layers[hash]
   if !ok {
-    return ErrLayerNotFound
+    return storage.ErrLayerNotFound
   }
   return s.db.View(func(tr db.Transaction) error {
     ctr := &currentTransaction{
@@ -91,9 +94,13 @@ func (s *currentStorage) View(hash types.Hash, fn func(storage.Transaction) erro
 // provided by the information source, so that backups recovering from this
 // storage engine can determine where to resume from.
 func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, weight *big.Int, updates []storage.KeyValue, deletes [][]byte, resumption []byte) error {
+  if h, ok := s.whitelist[number]; ok && h != hash {
+    log.Warn("Ignoring block due to whitelist", "num", number, "wlhash", h, "hash", hash)
+    return nil
+  }
   parentLayer, ok := s.layers[parentHash]
   if !ok {
-    return ErrLayerNotFound
+    return storage.ErrLayerNotFound
   }
   newLayer := &memoryLayer{
     hash: hash,
@@ -163,6 +170,10 @@ func (t *currentTransaction) Get(key []byte) ([]byte, error) {
   return t.layer.get(key, t.transaction)
 }
 
+func (t *currentTransaction) ZeroCopyGet(key []byte, fn func([]byte) error) error {
+  return t.layer.zeroCopyGet(key, t.transaction, fn)
+}
+
 // type Storage interface {
 //   View(types.Hash, func(Transaction) error)
 //   AddBlock(hash, parentHash types.Hash, blockData []storage.KeyValue, number uint64, weight big.Int, deletes [][]byte, stateUpdates []storage.KeyValue)
@@ -226,12 +237,22 @@ func (l *memoryLayer) descendants() map[types.Hash]struct{} {
 
 func (l *memoryLayer) get(key []byte, tr db.Transaction) ([]byte, error) {
   if l.isDeleted(key) {
-    return []byte{}, ErrNotFound
+    return []byte{}, storage.ErrNotFound
   }
   if val, ok := l.updatesMap[string(key)]; ok {
     return val, nil
   }
   return l.parent.get(key, tr)
+}
+
+func (l *memoryLayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) error) error {
+  if l.isDeleted(key) {
+    return storage.ErrNotFound
+  }
+  if val, ok := l.updatesMap[string(key)]; ok {
+    return fn(val)
+  }
+  return l.parent.zeroCopyGet(key, tr, fn)
 }
 
 func (l *memoryLayer) isDeleted(key []byte) bool {
@@ -248,6 +269,7 @@ type layer interface {
   getHash() types.Hash
   number() uint64
   get([]byte, db.Transaction) ([]byte, error)
+  zeroCopyGet([]byte, db.Transaction, func([]byte) error) (error)
   parentLayer() layer
   weight() *big.Int
 }
@@ -320,6 +342,10 @@ func (l *diskLayer) number() uint64 {
 func (l *diskLayer) get(key []byte, tr db.Transaction) ([]byte, error) {
   return tr.Get(DataKey(key))
 }
+
+func(l *diskLayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) error) error {
+  return tr.ZeroCopyGet(key, fn)
+}
 func (l *diskLayer) parentLayer() layer {
   return nil
 }
@@ -327,6 +353,3 @@ func (l *diskLayer) parentLayer() layer {
 func (l *diskLayer) weight() *big.Int {
   return l.blockWeight
 }
-
-// TODO: Consider how to do an initial load of a large quantity of data into
-// the disk layer.
