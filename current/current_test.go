@@ -13,7 +13,7 @@ import (
 
 func TestAddBlock(t *testing.T) {
   db := mem.NewMemoryDatabase(1024)
-  s := New(db, 8)
+  s := New(db, 8, nil)
   if err := s.AddBlock(
     types.HexToHash("a"),
     types.Hash{},
@@ -69,7 +69,7 @@ func TestAddBlock(t *testing.T) {
 }
 func TestFork(t *testing.T) {
   db := mem.NewMemoryDatabase(1024)
-  s := New(db, 8)
+  s := New(db, 8, nil)
   if err := s.AddBlock(
     types.HexToHash("a"),
     types.Hash{},
@@ -147,7 +147,7 @@ func TestFork(t *testing.T) {
 }
 func TestDepth(t *testing.T) {
   db := mem.NewMemoryDatabase(1024)
-  s := New(db, 4)
+  s := New(db, 4, nil)
   if err := s.AddBlock(
     types.HexToHash("a"),
     types.Hash{},
@@ -233,8 +233,8 @@ func TestDepth(t *testing.T) {
     []byte("0"),
   );  err != nil { t.Errorf(err.Error()) }
 
-  if err := s.View(types.HexToHash("a"), func(tr storage.Transaction) error { return nil }); err != ErrLayerNotFound { t.Errorf( "Expected missing layer, got: %v", err )}
-  if err := s.View(types.HexToHash("b"), func(tr storage.Transaction) error { return nil }); err != ErrLayerNotFound { t.Errorf( "Expected missing layer, got: %v", err )}
+  if err := s.View(types.HexToHash("a"), func(tr storage.Transaction) error { return nil }); err != storage.ErrLayerNotFound { t.Errorf( "Expected missing layer, got: %v", err )}
+  if err := s.View(types.HexToHash("b"), func(tr storage.Transaction) error { return nil }); err != storage.ErrLayerNotFound { t.Errorf( "Expected missing layer, got: %v", err )}
   if err := s.View(types.HexToHash("g"), func(tr storage.Transaction) error {
     if data, err := tr.Get([]byte("a")); err != nil {
       t.Errorf("Error getting 'a': %v", err)

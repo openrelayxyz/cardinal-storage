@@ -31,14 +31,25 @@ type Storage interface {
   // LatestHash returns the block with the highest weight added through AddBlock
   LatestHash() types.Hash
 
-  // NumberToHash returns the hash of the block with the specified number that
-  // is an ancestor of the block at `LatestHash()`
+  // NumberToHash will convert a number to a hash within the range of blocks
+  // that can be queried by this Storage interface
   NumberToHash(uint64) (types.Hash, error)
 }
 
 type Transaction interface {
+  // Get returns the data stored at a given key.
   Get([]byte) ([]byte, error)
+  // ZeroCopyGet invokes the provided closure with the data stored at the given
+  // key. The data should not be modified, and should not be accessed outside
+  // the closure without being copied.
   ZeroCopyGet([]byte, func([]byte) error) error
+  // NumberToHash returns a block hash given a block number. This may or may
+  // not be able to go back to the genesis block, but likely goes back further
+  // than Storage.NumberToHash
+  NumberToHash(uint64) (types.Hash)
+  // HashToNumber returns the block number corresponding to the given hash.
+  // This may or may not be able to go back to the genesis block.
+  HashToNumber(types.Hash) (uint64)
 }
 
 

@@ -22,7 +22,7 @@ func NewInitializer(db dbpkg.Database) *Initializer {
     kv: make(chan storage.KeyValue),
   }
   go func() {
-    done := false
+    // done := false
     for {
       select {
       case <-init.quit:
@@ -37,7 +37,7 @@ func NewInitializer(db dbpkg.Database) *Initializer {
             if err := tr.Put(kv.Key, kv.Value); err != nil { return err }
             counter++
           case <-init.quit:
-            done = true
+            // done = true
             return nil
           }
         }

@@ -147,16 +147,16 @@ func (s *currentStorage) LatestHash() types.Hash {
 func (s *currentStorage) NumberToHash(num uint64) (types.Hash, error) {
   layer := s.layers[s.latestHash]
   if layer.number() < num {
-    return types.Hash{}, fmt.Errorf("Requested hash of future block %v", num)
+    return types.Hash{}, fmt.Errorf("requested hash of future block %v", num)
   }
   for layer != nil && num > layer.number() {
     layer = layer.parentLayer()
   }
   if layer == nil {
-    return types.Hash{}, fmt.Errorf("Number %v not availale in history", num)
+    return types.Hash{}, fmt.Errorf("number %v not availale in history", num)
   }
   if layer.number() != num {
-    return types.Hash{}, fmt.Errorf("Unknown error occurred finding block number %v", num)
+    return types.Hash{}, fmt.Errorf("unknown error occurred finding block number %v", num)
   }
   return layer.getHash(), nil
 }
@@ -172,6 +172,14 @@ func (t *currentTransaction) Get(key []byte) ([]byte, error) {
 
 func (t *currentTransaction) ZeroCopyGet(key []byte, fn func([]byte) error) error {
   return t.layer.zeroCopyGet(key, t.transaction, fn)
+}
+
+func (t *currentTransaction) NumberToHash(num uint64) types.Hash {
+  return t.layer.numberToHash(num, t.transaction)
+}
+
+func (t *currentTransaction) HashToNumber(hash types.Hash) uint64 {
+  return t.layer.hashToNumber(hash, t.transaction)
 }
 
 // type Storage interface {
@@ -264,6 +272,23 @@ func (l *memoryLayer) isDeleted(key []byte) bool {
   }
   return false
 }
+
+
+func (l *memoryLayer) numberToHash(x uint64, tr db.Transaction) types.Hash {
+  if l.num == x {
+    return l.hash
+  }
+  return l.parent.numberToHash(x, tr)
+}
+
+func (l *memoryLayer) hashToNumber(x types.Hash, tr db.Transaction) uint64 {
+  if l.hash == x {
+    return l.num
+  }
+  return l.parent.hashToNumber(x, tr)
+}
+
+
 type layer interface {
   consolidate(*memoryLayer) (map[types.Hash]layer, map[types.Hash]struct{}, error) // Consolidates the tree
   getHash() types.Hash
@@ -272,6 +297,8 @@ type layer interface {
   zeroCopyGet([]byte, db.Transaction, func([]byte) error) (error)
   parentLayer() layer
   weight() *big.Int
+  numberToHash(uint64, db.Transaction) types.Hash
+  hashToNumber(types.Hash, db.Transaction) uint64
 }
 
 type diskLayer struct {
@@ -352,4 +379,21 @@ func (l *diskLayer) parentLayer() layer {
 
 func (l *diskLayer) weight() *big.Int {
   return l.blockWeight
+}
+func (l *diskLayer) numberToHash(x uint64, tr db.Transaction) types.Hash {
+  var hash types.Hash
+  tr.ZeroCopyGet(NumToHashKey(x), func(data []byte) error {
+    copy(hash[:], data)
+    return nil
+  })
+  return hash
+}
+
+func (l *diskLayer) hashToNumber(x types.Hash, tr db.Transaction) uint64 {
+  var result uint64
+  tr.ZeroCopyGet(HashToNumKey(x), func(numberBytes []byte) error {
+    result = binary.BigEndian.Uint64(numberBytes)
+    return nil
+  })
+  return result
 }
