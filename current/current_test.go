@@ -66,6 +66,7 @@ func TestAddBlock(t *testing.T) {
     } else if string(data) != "Something 1" { t.Errorf("Unexpected value for a.Data")}
     return nil
   }); err != nil { t.Errorf(err.Error() )}
+  if latest := s.LatestHash(); latest != types.HexToHash("b") { t.Errorf("expected latest hash to be 'b', got %#x", latest)}
 }
 func TestFork(t *testing.T) {
   db := mem.NewMemoryDatabase(1024)

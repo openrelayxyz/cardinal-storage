@@ -2,6 +2,7 @@ package badgerdb
 
 import (
   "errors"
+  "github.com/openrelayxyz/cardinal-storage"
   dbpkg "github.com/openrelayxyz/cardinal-storage/db"
   badger "github.com/dgraph-io/badger/v3"
 )
@@ -76,6 +77,7 @@ var (
 // problems.
 func (tx *badgerTx) Get(key []byte) ([]byte, error) {
   item, err := tx.tx.Get(key)
+  if err == badger.ErrKeyNotFound { return nil, storage.ErrNotFound }
   if err != nil { return nil, err }
   return item.ValueCopy(nil)
 }
@@ -85,6 +87,7 @@ func (tx *badgerTx) Get(key []byte) ([]byte, error) {
 // be reused soon after.
 func (tx *badgerTx) ZeroCopyGet(key []byte, fn func([]byte) error) error {
   item, err := tx.tx.Get(key)
+  if err == badger.ErrKeyNotFound { return storage.ErrNotFound }
   if err != nil { return err }
   return item.Value(func(value []byte) error {
     return fn(value)

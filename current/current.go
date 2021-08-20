@@ -65,6 +65,8 @@ func Open(sdb db.Database, maxDepth int64) (storage.Storage, error) {
       depth: 0,
       maxDepth: maxDepth,
    }
+   s.latestHash = blockHash
+   log.Debug("Initializing current storage", "hash", blockHash, "depth", maxDepth)
    return nil
   }); err != nil { return nil, err }
   return s, nil
@@ -121,7 +123,7 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
   for _, k := range deletes {
     newLayer.deletesMap[string(k)] = struct{}{}
   }
-  if weight.Cmp(newLayer.weight()) > 0 {
+  if s.layers[s.latestHash].weight().Cmp(newLayer.weight()) < 0 {
     // TODO: Maybe need to use an atomic value for s.latestHash
     s.latestHash = hash
   }
@@ -371,7 +373,7 @@ func (l *diskLayer) get(key []byte, tr db.Transaction) ([]byte, error) {
 }
 
 func(l *diskLayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) error) error {
-  return tr.ZeroCopyGet(key, fn)
+  return tr.ZeroCopyGet(DataKey(key), fn)
 }
 func (l *diskLayer) parentLayer() layer {
   return nil
