@@ -39,6 +39,8 @@ func main() {
       } else {
         init.AddData([]byte(r.Key), r.Value)
       }
+    } else {
+      continue
     }
     record = []byte{}
     if counter % 100000 == 0 {

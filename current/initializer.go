@@ -11,45 +11,46 @@ import (
 
 type Initializer struct {
   db dbpkg.Database
-  quit chan struct{}
+  done chan struct{}
   kv chan storage.KeyValue
 }
 
 func NewInitializer(db dbpkg.Database) *Initializer {
   init := &Initializer{
     db: db,
-    quit: make(chan struct{}),
+    done: make(chan struct{}),
     kv: make(chan storage.KeyValue),
   }
   go func() {
-    // done := false
-    for {
-      select {
-      case <-init.quit:
-        return
-      default:
-      }
+    done := false
+    for !done {
       if err := db.Update(func(tr dbpkg.Transaction) error {
         counter := 0
         for counter < 1000 {
           select {
-          case kv := <-init.kv:
-            if err := tr.Put(kv.Key, kv.Value); err != nil { return err }
+          case kv, ok := <-init.kv:
+            if !ok {
+              done = true
+              return nil
+            }
+            if err := tr.Put(kv.Key, kv.Value); err != nil {
+              log.Crit("Error putting key", "err", err)
+              return err
+            }
             counter++
-          case <-init.quit:
-            // done = true
-            return nil
           }
         }
         return nil
       }); err != nil { panic(err.Error()) }
     }
+    init.done <- struct{}{}
   }()
   return init
 }
 
 func (init *Initializer) Close() {
-  init.quit <- struct{}{}
+  close(init.kv)
+  <-init.done
   init.db.View(func(tr dbpkg.Transaction) error {
     if _, err := tr.Get(LatestBlockHashKey) ; err != nil {
       log.Crit("Could not retrieve LatestBlockHash on shutdown")

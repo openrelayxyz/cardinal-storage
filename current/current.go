@@ -125,6 +125,7 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
   }
   if s.layers[s.latestHash].weight().Cmp(newLayer.weight()) < 0 {
     // TODO: Maybe need to use an atomic value for s.latestHash
+    // log.Debug("New heaviest block", "oldweight", s.layers[s.latestHash].weight(), "newweight", newLayer.weight())
     s.latestHash = hash
   }
   // TODO: We need to consolidate the parent layers up into the disk layer
