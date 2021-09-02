@@ -5,6 +5,7 @@ import (
   "encoding/binary"
   "fmt"
   "math/big"
+  "sync"
   "github.com/openrelayxyz/cardinal-types"
   "github.com/openrelayxyz/cardinal-storage"
   "github.com/openrelayxyz/cardinal-storage/db"
@@ -20,6 +21,8 @@ type currentStorage struct {
   layers map[types.Hash]layer
   latestHash types.Hash
   whitelist map[uint64]types.Hash
+  mut sync.RWMutex
+  wlock sync.Mutex
 }
 
 // New starts a currentStorage instance from an empty database.
@@ -79,10 +82,15 @@ func (s *currentStorage) View(hash types.Hash, fn func(storage.Transaction) erro
   if !ok {
     return storage.ErrLayerNotFound
   }
+  s.mut.RLock()
+  txlayer := layer.tx()
+  var once sync.Once
+  defer once.Do(s.mut.RUnlock) // defer in case there's a DB error for the view. Use once so we don't multiply unlock
   return s.db.View(func(tr db.Transaction) error {
+    once.Do(s.mut.RUnlock) // We unlock once both the txlayer and db transaction have been created, ensuring that they are synchronized
     ctr := &currentTransaction{
       transaction: tr,
-      layer: layer,
+      layer: txlayer,
     }
     return fn(ctr)
   })
@@ -96,6 +104,8 @@ func (s *currentStorage) View(hash types.Hash, fn func(storage.Transaction) erro
 // provided by the information source, so that backups recovering from this
 // storage engine can determine where to resume from.
 func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, weight *big.Int, updates []storage.KeyValue, deletes [][]byte, resumption []byte) error {
+  s.wlock.Lock() // Make sure only one thread at a time executes AddBlock()
+  defer s.wlock.Unlock()
   if h, ok := s.whitelist[number]; ok && h != hash {
     log.Warn("Ignoring block due to whitelist", "num", number, "wlhash", h, "hash", hash)
     return nil
@@ -115,6 +125,7 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
     deletes: deletes,
     resumption: resumption,
     children: make(map[types.Hash]*memoryLayer),
+    mut: &s.mut,
   }
   s.layers[hash] = newLayer
   for _, kv := range updates {
@@ -166,7 +177,7 @@ func (s *currentStorage) NumberToHash(num uint64) (types.Hash, error) {
 
 type currentTransaction struct {
   transaction db.Transaction
-  layer layer
+  layer txlayer
 }
 
 func (t *currentTransaction) Get(key []byte) ([]byte, error) {
@@ -210,6 +221,7 @@ type memoryLayer struct {
   resumption []byte
   depth int64
   children map[types.Hash]*memoryLayer
+  mut *sync.RWMutex
 }
 
 func (l *memoryLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[types.Hash]struct{}, error){
@@ -219,7 +231,11 @@ func (l *memoryLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map
   l.children[child.hash] = child
   changes, deletes, err := l.parent.consolidate(l)
   if newParent, ok := changes[l.parent.getHash()]; ok {
+    l.mut.Lock()
+    // We hold the lock for a remarkably small period of time, but ensure
+    // atomic views
     l.parent = newParent
+    l.mut.Unlock()
   }
   return changes, deletes, err
 }
@@ -291,6 +307,77 @@ func (l *memoryLayer) hashToNumber(x types.Hash, tr db.Transaction) uint64 {
   return l.parent.hashToNumber(x, tr)
 }
 
+func (l *memoryLayer) tx() txlayer {
+  return &memtxlayer{
+    parent: l.parent.tx(),
+    num: l.num,
+    hash: l.hash,
+    updatesMap: l.updatesMap,
+    deletesMap: l.deletesMap,
+  }
+}
+
+type memtxlayer struct{
+  parent txlayer
+  num uint64
+  hash types.Hash
+  updatesMap map[string][]byte
+  deletesMap map[string]struct{}
+}
+
+func (l *memtxlayer) get(key []byte, tr db.Transaction) ([]byte, error) {
+  if l.isDeleted(key) {
+    return []byte{}, storage.ErrNotFound
+  }
+  if val, ok := l.updatesMap[string(key)]; ok {
+    return val, nil
+  }
+  return l.parent.get(key, tr)
+}
+
+func (l *memtxlayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) error) error {
+  if l.isDeleted(key) {
+    return storage.ErrNotFound
+  }
+  if val, ok := l.updatesMap[string(key)]; ok {
+    return fn(val)
+  }
+  return l.parent.zeroCopyGet(key, tr, fn)
+}
+
+func (l *memtxlayer) isDeleted(key []byte) bool {
+  components := bytes.Split(key, []byte("/"))
+  for i := 1; i <= len(components); i++ {
+    if _, ok := l.deletesMap[string(bytes.Join(components[:i], []byte("/")))]; ok {
+      return true
+    }
+  }
+  return false
+}
+
+
+func (l *memtxlayer) numberToHash(x uint64, tr db.Transaction) types.Hash {
+  if l.num == x {
+    return l.hash
+  }
+  return l.parent.numberToHash(x, tr)
+}
+
+func (l *memtxlayer) hashToNumber(x types.Hash, tr db.Transaction) uint64 {
+  if l.hash == x {
+    return l.num
+  }
+  return l.parent.hashToNumber(x, tr)
+}
+
+
+type txlayer interface {
+  get([]byte, db.Transaction) ([]byte, error)
+  zeroCopyGet([]byte, db.Transaction, func([]byte) error) (error)
+  numberToHash(uint64, db.Transaction) types.Hash
+  hashToNumber(types.Hash, db.Transaction) uint64
+}
+
 
 type layer interface {
   consolidate(*memoryLayer) (map[types.Hash]layer, map[types.Hash]struct{}, error) // Consolidates the tree
@@ -302,6 +389,7 @@ type layer interface {
   weight() *big.Int
   numberToHash(uint64, db.Transaction) types.Hash
   hashToNumber(types.Hash, db.Transaction) uint64
+  tx() txlayer
 }
 
 type diskLayer struct {
@@ -401,4 +489,10 @@ func (l *diskLayer) hashToNumber(x types.Hash, tr db.Transaction) uint64 {
     return nil
   })
   return result
+}
+
+func (l *diskLayer) tx() txlayer {
+  // All of the relevant txlayer methods run off of the transaction for the
+  // disk layer, so we can just pass the unmodified disk layer.
+  return l
 }
