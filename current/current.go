@@ -332,15 +332,16 @@ func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[t
     deletes[l.getHash()] = struct{}{}
     changes[child.hash] = l
     if err := l.storage.db.Update(func(tr db.Transaction) error {
+      delta := newDelta(tr)
       numberBytes := make([]byte, 8)
       binary.BigEndian.PutUint64(numberBytes, child.number())
-      tr.Put(HashToNumKey(child.hash), numberBytes)
-      tr.Put(NumToHashKey(child.number()), child.hash[:])
-      tr.Put(ResumptionDataKey, child.resumption)
-      tr.Put(LatestBlockHashKey, child.hash[:])
-      tr.Put(LatestBlockWeightKey, child.weight().Bytes())
+      delta.put(HashToNumKey(child.hash), numberBytes)
+      delta.put(NumToHashKey(child.number()), child.hash[:])
+      delta.put(ResumptionDataKey, child.resumption)
+      delta.put(LatestBlockHashKey, child.hash[:])
+      delta.put(LatestBlockWeightKey, child.weight().Bytes())
       for _, kv := range(child.updates) {
-        tr.Put(DataKey(kv.Key), kv.Value)
+        delta.put(DataKey(kv.Key), kv.Value)
       }
       for _, deletKey := range(child.deletes) {
         iter := tr.Iterator(DataKey(deletKey))
@@ -348,7 +349,7 @@ func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[t
           // NOTE: Some database implementations may not like having keys deleted
           // out of them while they're iterating over them. We may need to
           // compile a list of keys to delete, then delete them after iterating.
-          tr.Delete(iter.Key())
+          delta.delete(iter.Key())
         }
       }
       l.h = child.hash
@@ -356,6 +357,7 @@ func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[t
       l.blockWeight = child.weight()
       l.depth = child.depth
       l.children = child.children
+      delta.finalize(child.number())
       return nil
     }); err != nil {
       return nil, nil, err
