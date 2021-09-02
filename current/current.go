@@ -151,6 +151,32 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
   return nil
 }
 
+func (s *currentStorage) Rollback(number uint64) error {
+  s.mut.Lock()
+  defer s.mut.Unlock() // I don't care if this locks things up for a while. Rollbacks should be very rare.
+  currentLayer := s.layers[s.latestHash]
+  for currentLayer.number() > number {
+    switch l := currentLayer.(type) {
+    case rollbackLayer:
+      err := l.rollback(number)
+      s.latestHash = l.getHash()
+      s.layers = map[types.Hash]layer {
+        s.latestHash: l,
+      }
+      return err
+    case *memoryLayer:
+      for k := range l.descendants() {
+        delete(s.layers, k)
+      }
+      delete(s.layers, l.getHash())
+      log.Debug("Rolled back memory layer", "number", currentLayer.number())
+      currentLayer = l.parent
+      s.latestHash = currentLayer.getHash()
+    }
+  }
+  return nil
+}
+
 // LatestHash returns the block with the highest weight added through AddBlock
 func (s *currentStorage) LatestHash() types.Hash {
   return s.latestHash
@@ -392,6 +418,11 @@ type layer interface {
   tx() txlayer
 }
 
+type rollbackLayer interface {
+  layer
+  rollback(uint64) error
+}
+
 type diskLayer struct {
   storage *currentStorage
   h types.Hash
@@ -495,4 +526,27 @@ func (l *diskLayer) tx() txlayer {
   // All of the relevant txlayer methods run off of the transaction for the
   // disk layer, so we can just pass the unmodified disk layer.
   return l
+}
+
+func (l *diskLayer) rollback(number uint64) error {
+  l.children = make(map[types.Hash]*memoryLayer)
+  l.depth = 0
+  for l.num > number {
+    if err := l.storage.db.Update(func(tr db.Transaction) error {
+      d, err := loadDelta(l.num, tr)
+      if err != nil { return fmt.Errorf("error loading delta: %v", err) }
+      if err := d.apply(); err != nil { return fmt.Errorf("error applying delta: %v", err) }
+      l.num--
+      if err := tr.ZeroCopyGet(NumToHashKey(l.num), func(data []byte) error {
+        copy(l.h[:], data[:])
+        return nil
+      }); err != nil { return fmt.Errorf("error getting key %x: %v", string(NumToHashKey(l.num)), err.Error()) }
+      if err := tr.ZeroCopyGet(LatestBlockWeightKey, func(data []byte) error {
+        l.blockWeight.SetBytes(data)
+        return nil
+      }); err != nil { return fmt.Errorf("error getting key %x: %v", string(LatestBlockWeightKey), err.Error()) }
+      return nil
+    }); err != nil { return err }
+  }
+  return nil
 }

@@ -247,4 +247,11 @@ func TestDepth(t *testing.T) {
     } else if string(data) != "3" { t.Errorf("Unexpected value for b")}
     return nil
   }); err != nil { t.Errorf(err.Error() )}
+  if err := s.Rollback(1); err != nil { t.Fatalf(err.Error() )}
+  if err := s.View(types.HexToHash("a"), func(tr storage.Transaction) error {
+    if data, err := tr.Get([]byte("b")); err != nil {
+      return err
+    } else if string(data) != "2" { t.Errorf("Unexpected value for a") }
+    return nil
+  }); err != nil { t.Errorf( "Unexpected error: %v", err )}
 }

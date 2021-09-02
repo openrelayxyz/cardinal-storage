@@ -95,11 +95,14 @@ func (d *delta) finalize(blockNumber uint64) error {
 func (d *delta) apply() error {
   for k, v := range d.Changes {
     if v.Delete {
+      log.Debug("Rollback deletion", "key", fmt.Sprintf("%#x", k))
       if err := d.tr.Delete([]byte(k)); err != nil && err != storage.ErrNotFound { return err }
     } else {
+      log.Debug("Rollback update", "key", fmt.Sprintf("%#x", k), "value", fmt.Sprintf("%#x", v.Data))
       if err := d.tr.Put([]byte(k), v.Data); err != nil { return err }
     }
   }
+  log.Debug("Rolled back", "block", d.number)
   return d.tr.Delete(RollbackDelta(d.number))
 }
 

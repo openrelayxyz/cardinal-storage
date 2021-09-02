@@ -34,6 +34,9 @@ type Storage interface {
   // NumberToHash will convert a number to a hash within the range of blocks
   // that can be queried by this Storage interface
   NumberToHash(uint64) (types.Hash, error)
+
+  // Roll back the storage engine to the specified block number in its history
+  Rollback(uint64) error
 }
 
 type Transaction interface {
