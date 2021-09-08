@@ -12,10 +12,6 @@ import (
   log "github.com/inconshreveable/log15"
 )
 
-// TODO: We should have a way to specify `number = hash` for some set of
-// blocks, similar to Geth's --whitelist flag. This would make sure that in the
-// event of a reorg larger than maxDepth we could manually indicate which side
-// of the split to be on and ignore blocks on the other side of the split.
 type currentStorage struct {
   db db.Database
   layers map[types.Hash]layer
@@ -139,7 +135,6 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
     // log.Debug("New heaviest block", "oldweight", s.layers[s.latestHash].weight(), "newweight", newLayer.weight())
     s.latestHash = hash
   }
-  // TODO: We need to consolidate the parent layers up into the disk layer
   changes, deletions, err := parentLayer.consolidate(newLayer)
   if err != nil { return err }
   for h, l := range changes {
@@ -151,6 +146,10 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
   return nil
 }
 
+// Rollback reverts to a specified block number, moving backwards from the
+// heaviest known block. This should only be called for reorgs larger than the
+// in-memory reorg threshold. Data more recent than the specified block will be
+// discarded.
 func (s *currentStorage) Rollback(number uint64) error {
   s.mut.Lock()
   defer s.mut.Unlock() // I don't care if this locks things up for a while. Rollbacks should be very rare.
@@ -221,19 +220,6 @@ func (t *currentTransaction) NumberToHash(num uint64) types.Hash {
 func (t *currentTransaction) HashToNumber(hash types.Hash) uint64 {
   return t.layer.hashToNumber(hash, t.transaction)
 }
-
-// type Storage interface {
-//   View(types.Hash, func(Transaction) error)
-//   AddBlock(hash, parentHash types.Hash, blockData []storage.KeyValue, number uint64, weight big.Int, deletes [][]byte, stateUpdates []storage.KeyValue)
-//   LatestHash() types.Hash
-//   NumberToHash(uint64) types.Hash
-// }
-//
-// type Transaction interface {
-//   GetState([]byte) ([]byte, error)
-//   GetBlockData([]byte) ([]byte, error)
-// }
-
 
 type memoryLayer struct {
   parent layer
