@@ -9,7 +9,5 @@ require (
 	github.com/inconshreveable/log15 v0.0.0-20201112154412-8562bdadbbac
 	github.com/mattn/go-colorable v0.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.5-0.20180830101745-3fb116b82035 // indirect
-	github.com/openrelayxyz/cardinal-types v0.0.0-00010101000000-000000000000
+	github.com/openrelayxyz/cardinal-types v0.0.1
 )
-
-replace github.com/openrelayxyz/cardinal-types => /home/aroberts/Projects/gopath/src/github.com/openrelayxyz/cardinal-types
