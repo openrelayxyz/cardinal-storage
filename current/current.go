@@ -42,19 +42,36 @@ func New(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (stor
 }
 
 // Open loads a currentStorage instance from a loaded database
-func Open(sdb db.Database, maxDepth int64) (storage.Storage, error) {
+func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (storage.Storage, error) {
+  if whitelist == nil { whitelist = make(map[uint64]types.Hash)}
   s := &currentStorage{
     db: sdb,
     layers: make(map[types.Hash]layer),
+    whitelist: whitelist,
   }
   if err := sdb.View(func(tr db.Transaction) error {
     hashBytes, err := tr.Get(LatestBlockHashKey)
-    if err != nil { return err }
+    if err != nil {
+      log.Error("Error getting latest block hash")
+      return err
+    }
     blockHash := types.BytesToHash(hashBytes)
     numBytes, err := tr.Get(HashToNumKey(blockHash))
-    if err != nil  { return err }
+    if err != nil  {
+      log.Error("Error getting block number")
+      return err
+    }
     weightBytes, err := tr.Get(LatestBlockWeightKey)
-    if err != nil  { return err }
+    if err != nil  {
+      log.Error("Error getting block weight")
+      return err
+    }
+    resumptionBytes, err := tr.Get(ResumptionDataKey)
+    if err != nil && err != storage.ErrNotFound {
+      log.Error("Error getting resumption key")
+      return err
+    }
+
     s.layers[blockHash] = &diskLayer{
       storage: s,
       h: blockHash,
@@ -63,9 +80,10 @@ func Open(sdb db.Database, maxDepth int64) (storage.Storage, error) {
       children: make(map[types.Hash]*memoryLayer),
       depth: 0,
       maxDepth: maxDepth,
+      resume: resumptionBytes,
    }
    s.latestHash = blockHash
-   log.Debug("Initializing current storage", "hash", blockHash, "depth", maxDepth)
+   log.Debug("Initializing current storage", "hash", blockHash, "depth", maxDepth, "num", binary.BigEndian.Uint64(numBytes))
    return nil
   }); err != nil { return nil, err }
   return s, nil
@@ -119,7 +137,7 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
     updates: updates,
     deletesMap: make(map[string]struct{}),
     deletes: deletes,
-    resumption: resumption,
+    resume: resumption,
     children: make(map[types.Hash]*memoryLayer),
     mut: &s.mut,
   }
@@ -132,8 +150,10 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
   }
   if s.layers[s.latestHash].weight().Cmp(newLayer.weight()) < 0 {
     // TODO: Maybe need to use an atomic value for s.latestHash
-    // log.Debug("New heaviest block", "oldweight", s.layers[s.latestHash].weight(), "newweight", newLayer.weight())
+    log.Debug("New heaviest block", "hash", hash, "number", number, "oldweight", s.layers[s.latestHash].weight(), "newweight", newLayer.weight())
     s.latestHash = hash
+  } else {
+    log.Debug("Added side block", "hash", hash, "number", number, "headweight", s.layers[s.latestHash].weight(), "sideweight", newLayer.weight())
   }
   changes, deletions, err := parentLayer.consolidate(newLayer)
   if err != nil { return err }
@@ -188,16 +208,23 @@ func (s *currentStorage) NumberToHash(num uint64) (types.Hash, error) {
   if layer.number() < num {
     return types.Hash{}, fmt.Errorf("requested hash of future block %v", num)
   }
-  for layer != nil && num > layer.number() {
+  for layer != nil && num < layer.number() {
     layer = layer.parentLayer()
   }
   if layer == nil {
     return types.Hash{}, fmt.Errorf("number %v not availale in history", num)
   }
   if layer.number() != num {
-    return types.Hash{}, fmt.Errorf("unknown error occurred finding block number %v", num)
+    return types.Hash{}, fmt.Errorf("unknown error occurred finding block number %v (layer %v)", num, layer.number())
   }
   return layer.getHash(), nil
+}
+
+// Resumption returns the cardinal-streams resumption token of the latest
+// block.
+func (s *currentStorage) LatestBlock() (types.Hash, uint64, *big.Int, []byte) {
+  latest := s.layers[s.latestHash]
+  return latest.blockInfo()
 }
 
 type currentTransaction struct {
@@ -230,7 +257,7 @@ type memoryLayer struct {
   updates []storage.KeyValue
   deletesMap map[string]struct{}
   deletes [][]byte
-  resumption []byte
+  resume []byte
   depth int64
   children map[types.Hash]*memoryLayer
   mut *sync.RWMutex
@@ -272,6 +299,9 @@ func (l *memoryLayer) descendants() map[types.Hash]struct{} {
     }
   }
   return descendants
+}
+func (l *memoryLayer) blockInfo() (types.Hash, uint64, *big.Int, []byte) {
+  return l.hash, l.num, l.blockWeight, l.resume
 }
 
 func (l *memoryLayer) get(key []byte, tr db.Transaction) ([]byte, error) {
@@ -402,6 +432,7 @@ type layer interface {
   numberToHash(uint64, db.Transaction) types.Hash
   hashToNumber(types.Hash, db.Transaction) uint64
   tx() txlayer
+  blockInfo() (types.Hash, uint64, *big.Int, []byte)
 }
 
 type rollbackLayer interface {
@@ -417,6 +448,7 @@ type diskLayer struct {
   children map[types.Hash]*memoryLayer
   depth int64
   maxDepth int64
+  resume []byte
 }
 
 
@@ -442,7 +474,8 @@ func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[t
       binary.BigEndian.PutUint64(numberBytes, child.number())
       delta.put(HashToNumKey(child.hash), numberBytes)
       delta.put(NumToHashKey(child.number()), child.hash[:])
-      delta.put(ResumptionDataKey, child.resumption)
+      delta.put(ResumptionDataKey, child.resume)
+
       delta.put(LatestBlockHashKey, child.hash[:])
       delta.put(LatestBlockWeightKey, child.weight().Bytes())
       for _, kv := range(child.updates) {
@@ -456,12 +489,14 @@ func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[t
           // compile a list of keys to delete, then delete them after iterating.
           delta.delete(iter.Key())
         }
+        iter.Close()
       }
       l.h = child.hash
       l.num = child.number()
       l.blockWeight = child.weight()
       l.depth = child.depth
       l.children = child.children
+      l.resume = child.resume
       delta.finalize(child.number())
       return nil
     }); err != nil {
@@ -478,6 +513,9 @@ func (l *diskLayer) number() uint64 {
 }
 func (l *diskLayer) get(key []byte, tr db.Transaction) ([]byte, error) {
   return tr.Get(DataKey(key))
+}
+func (l *diskLayer) blockInfo() (types.Hash, uint64, *big.Int, []byte) {
+  return l.h, l.num, l.blockWeight, l.resume
 }
 
 func(l *diskLayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) error) error {

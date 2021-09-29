@@ -37,6 +37,9 @@ type Storage interface {
 
   // Roll back the storage engine to the specified block number in its history
   Rollback(uint64) error
+
+  // The resumption token of the current latest block
+  LatestBlock() (types.Hash, uint64, *big.Int, []byte)
 }
 
 type Transaction interface {
