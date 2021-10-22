@@ -112,15 +112,15 @@ func (tx *viewTransaction) ZeroCopyGet(key []byte, fn func([]byte) error) error 
 }
 
 func (tx *viewTransaction) Put([]byte, []byte) error {
-  return errors.New("Attempted Write to View Transaction")
+  return storage.ErrWriteToReadOnly
 }
 
 func (tx *viewTransaction) PutReserve([]byte, int) ([]byte, error) {
-  return []byte{}, errors.New("Attempted Write to View Transaction")
+  return []byte{}, storage.ErrWriteToReadOnly
 }
 
 func (tx *viewTransaction) Delete([]byte) error {
-  return errors.New("Attempted Write to View Transaction")
+  return storage.ErrWriteToReadOnly
 }
 
 func (tx *viewTransaction) Iterator(prefix []byte) dbpkg.Iterator {

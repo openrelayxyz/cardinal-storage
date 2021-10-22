@@ -68,10 +68,6 @@ func (it *badgerIterator) Error() error {
   return it.err
 }
 
-var (
-  ErrReadOnly = errors.New("Attempt to write to read-only transaciton") // TODO: Move up a level
-)
-
 // Get returns a copy of the value at the specified key. The copy can continue
 // to exist after the transaction closes, and may be manipulated without having
 // problems.
@@ -95,18 +91,18 @@ func (tx *badgerTx) ZeroCopyGet(key []byte, fn func([]byte) error) error {
 }
 
 func (tx *badgerTx) Put(key, value []byte) (error) {
-  if !tx.writable { return ErrReadOnly }
+  if !tx.writable { return db.ErrWriteToReadOnly }
   return tx.tx.Set(key, value)
 }
 
 func (tx *badgerTx) PutReserve(key []byte, size int) ([]byte, error) {
-  if !tx.writable { return nil, ErrReadOnly }
+  if !tx.writable { return nil, db.ErrWriteToReadOnly }
   tx.reserves[string(key)] = make([]byte, size)
   return tx.reserves[string(key)], nil
 }
 
 func (tx *badgerTx) Delete(key []byte) error {
-  if !tx.writable { return ErrReadOnly }
+  if !tx.writable { return db.ErrWriteToReadOnly }
   return tx.tx.Delete(key)
 }
 
