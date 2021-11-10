@@ -4,6 +4,7 @@ import (
   "bytes"
   "encoding/binary"
   "fmt"
+  // "io"
   "math/big"
   "sync"
   "github.com/openrelayxyz/cardinal-types"
@@ -81,12 +82,36 @@ func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (sto
       depth: 0,
       maxDepth: maxDepth,
       resume: resumptionBytes,
-   }
-   s.latestHash = blockHash
-   log.Debug("Initializing current storage", "hash", blockHash, "depth", maxDepth, "num", binary.BigEndian.Uint64(numBytes))
-   return nil
+    }
+    if persistenceData, err := tr.Get(MemoryPersistenceKey); err != nil {
+      log.Warn("Error reading memory layer. Using disk layer.", "error", err)
+      s.latestHash = blockHash
+    } else {
+      if h, err := loadMap(s.layers, persistenceData, &s.mut); err != nil {
+        log.Warn("Error loading memory layer. Using disk layer.", "error", err)
+        s.latestHash = blockHash
+      } else {
+        s.latestHash = h
+      }
+    }
+    log.Debug("Initializing current storage", "hash", s.latestHash, "depth", maxDepth, "disknum", binary.BigEndian.Uint64(numBytes), "latestnum", s.layers[s.latestHash].number())
+    return nil
   }); err != nil { return nil, err }
   return s, nil
+}
+
+func (s *currentStorage) Close() error {
+  s.wlock.Lock() // We're closing, so we're never going to unlock this
+  log.Info("Shutting down storage engine")
+  data, err := preparePersist(s.layers)
+  if err != nil { return err }
+  if err := s.db.Update(func(tr db.Transaction) error {
+    log.Info("Persisting memory layers")
+    return tr.Put(MemoryPersistenceKey, data)
+  }); err != nil {
+    return err
+  }
+  return nil
 }
 
 // View returns a transaction for interfacing with the layer indicated by the
@@ -287,6 +312,9 @@ func (l *memoryLayer) getHash() types.Hash {
 func (l *memoryLayer) parentLayer() layer {
   return l.parent
 }
+func (l *memoryLayer) persisted() bool {
+  return false
+}
 func (l *memoryLayer) weight() *big.Int {
   return l.blockWeight
 }
@@ -433,6 +461,7 @@ type layer interface {
   hashToNumber(types.Hash, db.Transaction) uint64
   tx() txlayer
   blockInfo() (types.Hash, uint64, *big.Int, []byte)
+  persisted() bool
 }
 
 type rollbackLayer interface {
@@ -523,6 +552,10 @@ func(l *diskLayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) er
 }
 func (l *diskLayer) parentLayer() layer {
   return nil
+}
+
+func (l *diskLayer) persisted() bool {
+  return true
 }
 
 func (l *diskLayer) weight() *big.Int {
