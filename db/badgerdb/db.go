@@ -1,7 +1,6 @@
 package badgerdb
 
 import (
-  "errors"
   "github.com/openrelayxyz/cardinal-storage"
   dbpkg "github.com/openrelayxyz/cardinal-storage/db"
   badger "github.com/dgraph-io/badger/v3"
@@ -101,18 +100,18 @@ func (tx *badgerTx) ZeroCopyGet(key []byte, fn func([]byte) error) error {
 }
 
 func (tx *badgerTx) Put(key, value []byte) (error) {
-  if !tx.writable { return db.ErrWriteToReadOnly }
+  if !tx.writable { return storage.ErrWriteToReadOnly }
   return tx.tx.Set(key, value)
 }
 
 func (tx *badgerTx) PutReserve(key []byte, size int) ([]byte, error) {
-  if !tx.writable { return nil, db.ErrWriteToReadOnly }
+  if !tx.writable { return nil, storage.ErrWriteToReadOnly }
   tx.reserves[string(key)] = make([]byte, size)
   return tx.reserves[string(key)], nil
 }
 
 func (tx *badgerTx) Delete(key []byte) error {
-  if !tx.writable { return db.ErrWriteToReadOnly }
+  if !tx.writable { return storage.ErrWriteToReadOnly }
   return tx.tx.Delete(key)
 }
 
