@@ -24,6 +24,16 @@ func New(path string) (*Database, error) {
   return &Database{db: db}, error
 }
 
+func NewReadOnly(path string) (*Database, error) {
+  opt := badger.DefaultOptions(path)
+  if path == "" {
+    opt = opt.WithInMemory(true)
+  }
+	opt = opt.WithReadOnly(true)
+  db, error := badger.Open(opt)
+  return &Database{db: db}, error
+}
+
 type badgerTx struct {
   writable bool
   tx *badger.Txn

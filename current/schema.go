@@ -14,6 +14,7 @@ var (
   ResumptionDataKey = []byte("Resumption")
   LatestBlockHashKey = []byte("LatestBlockHash")
   LatestBlockWeightKey = []byte("LatestBlockWeight")
+  MemoryPersistenceKey = []byte("MemoryPersistence")
 )
 
 

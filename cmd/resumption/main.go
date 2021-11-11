@@ -10,7 +10,13 @@ import (
 
 
 func main() {
-  db, err := badgerdb.New(os.Args[1])
+	var db dbpkg.Database
+	var err error
+	if len(os.Args) == 2 {
+		db, err = badgerdb.NewReadOnly(os.Args[1])
+	} else {
+		db, err = badgerdb.New(os.Args[1])
+	}
   if err != nil {
     log.Error("Error opening badgerdb", "error", err)
     os.Exit(1)

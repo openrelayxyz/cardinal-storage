@@ -7,8 +7,8 @@ import (
 )
 
 type KeyValue struct {
-  Key []byte
-  Value []byte
+  Key []byte   `avro:"key"`
+  Value []byte `avro:"value"`
 }
 
 func (kv KeyValue) String() string {
@@ -38,8 +38,12 @@ type Storage interface {
   // Roll back the storage engine to the specified block number in its history
   Rollback(uint64) error
 
-  // The resumption token of the current latest block
+  // LatestBlock returns the hash, height, weight, and resumption token of the
+  // latest block
   LatestBlock() (types.Hash, uint64, *big.Int, []byte)
+
+  // Close cleanly shuts down the storage interface.
+  Close() error
 }
 
 type Transaction interface {
