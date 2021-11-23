@@ -2,7 +2,6 @@ package boltdb
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 
 	bolt "github.com/boltdb/bolt"
@@ -13,12 +12,23 @@ type Database struct {
 	db *bolt.DB
 }
 
+type boltTx struct {
+	bk       *bolt.Bucket
+	reserves map[string][]byte
+}
+
+type boltIterator struct {
+	cursor  *bolt.Cursor
+	first   bool
+	initKey []byte
+	initVal []byte
+	prefix  []byte
+}
+
 func Open(path string, mode os.FileMode, options *bolt.Options) (*Database, error) {
 	//if options are not specified default options will be set.
-	fmt.Println("inside db open")
 	db, err := bolt.Open(path, mode, options)
 	return &Database{db: db}, err
-
 }
 
 func (db *Database) Update(fn func(dbpkg.Transaction) error) error {
@@ -82,19 +92,6 @@ func (tx *boltTx) Iterator(prefix []byte) dbpkg.Iterator {
 		prefix:  prefix,
 	}
 	return it
-}
-
-type boltTx struct {
-	bk       *bolt.Bucket
-	reserves map[string][]byte
-}
-
-type boltIterator struct {
-	cursor  *bolt.Cursor
-	first   bool
-	initKey []byte
-	initVal []byte
-	prefix  []byte
 }
 
 func (it *boltIterator) Next() bool {

@@ -3,21 +3,26 @@ package boltdb
 import (
 	"bytes"
 	"errors"
-	"fmt"
+	"os"
 	"testing"
 
 	dbpkg "github.com/openrelayxyz/cardinal-storage/db"
 )
 
 func TestUpdateTx(t *testing.T) {
+	dir, er := os.MkdirTemp("", "testdir")
+	if er != nil {
+		t.Fatalf(er.Error())
+	}
+	path := dir + "/test.db"
 	var db dbpkg.Database
 	var err error
-	db, err = Open("test0.db", 0600, nil)
+	defer os.RemoveAll(dir)
+	db, err = Open(path, 0600, nil)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
 	err = db.Update(func(tx dbpkg.Transaction) error {
-		fmt.Println("inside of update test")
 		tx.Put([]byte("Hello"), []byte("World"))
 		val, err := tx.Get([]byte("Hello"))
 		if err != nil {
@@ -50,9 +55,14 @@ func TestUpdateTx(t *testing.T) {
 }
 
 func TestIterTx(t *testing.T) {
+	dir, er := os.MkdirTemp("", "testdir")
+	if er != nil {
+		t.Fatalf(er.Error())
+	}
+	path := dir + "/test.db"
 	var db dbpkg.Database
 	var err error
-	db, err = Open("test2.db", 0600, nil)
+	db, err = Open(path, 0600, nil)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
