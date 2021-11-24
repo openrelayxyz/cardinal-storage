@@ -68,6 +68,7 @@ func (it *badgerIterator) Next() bool {
 	} else {
 		it.it.Next()
 		ok = it.it.Valid()
+		it.first = true
 	}
 	return ok
 }
