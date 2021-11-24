@@ -22,7 +22,6 @@ func New(path string) (*Database, error) {
 		opt = opt.WithInMemory(true)
 	}
 	db, error := badger.Open(opt)
-	//defer db.Close()
 	return &Database{db: db}, error
 }
 
@@ -33,7 +32,6 @@ func NewReadOnly(path string) (*Database, error) {
 	}
 	opt = opt.WithReadOnly(true)
 	db, error := badger.Open(opt)
-	//defer db.Close()
 	return &Database{db: db}, error
 }
 
@@ -55,9 +53,6 @@ func (it *badgerIterator) Next() bool {
 	if it.err != nil {
 		return false
 	}
-	// fmt.Println(it.it.Valid(), 58)
-	//it.it.Next()
-	// fmt.Println(it.it.Valid(), 60)
 	var ok bool
 	if it.first {
 		if it.prefix != nil {
