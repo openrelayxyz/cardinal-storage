@@ -7,10 +7,15 @@ import (
   // "io"
   "math/big"
   "sync"
+  "github.com/hashicorp/golang-lru"
   "github.com/openrelayxyz/cardinal-types"
   "github.com/openrelayxyz/cardinal-storage"
   "github.com/openrelayxyz/cardinal-storage/db"
   log "github.com/inconshreveable/log15"
+)
+
+var (
+  partsCache *lru.Cache
 )
 
 type currentStorage struct {
@@ -25,6 +30,7 @@ type currentStorage struct {
 // New starts a currentStorage instance from an empty database.
 func New(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (storage.Storage) {
   if whitelist == nil { whitelist = make(map[uint64]types.Hash)}
+  if partsCache == nil { partsCache, _ = lru.New(1024) }
   s := &currentStorage{
     db: sdb,
     layers: make(map[types.Hash]layer),
@@ -45,6 +51,7 @@ func New(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (stor
 // Open loads a currentStorage instance from a loaded database
 func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (storage.Storage, error) {
   if whitelist == nil { whitelist = make(map[uint64]types.Hash)}
+  if partsCache == nil { partsCache, _ = lru.New(1024) }
   s := &currentStorage{
     db: sdb,
     layers: make(map[types.Hash]layer),
@@ -353,9 +360,21 @@ func (l *memoryLayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte)
 }
 
 func (l *memoryLayer) isDeleted(key []byte) bool {
-  components := bytes.Split(key, []byte("/"))
-  for i := 1; i <= len(components); i++ {
-    if _, ok := l.deletesMap[string(bytes.Join(components[:i], []byte("/")))]; ok {
+  if len(l.deletesMap) == 0 {
+    return false
+  }
+  parts := []string{}
+  if v, ok := partsCache.Get(string(key)); ok {
+    parts = v.([]string)
+  } else {
+    components := bytes.Split(key, []byte("/"))
+    for i := 1; i < len(components); i++ {
+      parts = append(parts, string(bytes.Join(components[:i], []byte("/"))))
+      partsCache.Add(string(key), parts)
+    }
+  }
+  for _, part := range parts {
+    if _, ok := l.deletesMap[part]; ok {
       return true
     }
   }
@@ -416,9 +435,21 @@ func (l *memtxlayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) 
 }
 
 func (l *memtxlayer) isDeleted(key []byte) bool {
-  components := bytes.Split(key, []byte("/"))
-  for i := 1; i <= len(components); i++ {
-    if _, ok := l.deletesMap[string(bytes.Join(components[:i], []byte("/")))]; ok {
+  if len(l.deletesMap) == 0 {
+    return false
+  }
+  parts := []string{}
+  if v, ok := partsCache.Get(string(key)); ok {
+    parts = v.([]string)
+  } else {
+    components := bytes.Split(key, []byte("/"))
+    for i := 1; i < len(components); i++ {
+      parts = append(parts, string(bytes.Join(components[:i], []byte("/"))))
+      partsCache.Add(string(key), parts)
+    }
+  }
+  for _, part := range parts {
+    if _, ok := l.deletesMap[part]; ok {
       return true
     }
   }
