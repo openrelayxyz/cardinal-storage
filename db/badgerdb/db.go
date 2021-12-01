@@ -1,8 +1,6 @@
 package badgerdb
 
 import (
-	"fmt"
-
 	badger "github.com/dgraph-io/badger/v3"
 	storage "github.com/openrelayxyz/cardinal-storage"
 	dbpkg "github.com/openrelayxyz/cardinal-storage/db"
@@ -55,20 +53,17 @@ func (it *badgerIterator) Next() bool {
 	}
 	var ok bool
 	if it.first {
-		if it.prefix != nil {
-			ok = it.it.ValidForPrefix(it.prefix)
-		} else {
-			ok = it.it.Valid()
-			fmt.Println(it.it.Valid())
-		}
-		if ok {
-			it.item = it.it.Item()
-			it.first = false
-		}
+		it.first = false
 	} else {
 		it.it.Next()
+	}
+	if it.prefix != nil {
+		ok = it.it.ValidForPrefix(it.prefix)
+	} else {
 		ok = it.it.Valid()
-		it.first = true
+	}
+	if ok {
+		it.item = it.it.Item()
 	}
 	return ok
 }
