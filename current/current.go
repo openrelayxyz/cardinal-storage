@@ -9,6 +9,7 @@ import (
   "sync"
   "github.com/hashicorp/golang-lru"
   "github.com/openrelayxyz/cardinal-types"
+  "github.com/openrelayxyz/cardinal-types/metrics"
   "github.com/openrelayxyz/cardinal-storage"
   "github.com/openrelayxyz/cardinal-storage/db"
   log "github.com/inconshreveable/log15"
@@ -16,6 +17,7 @@ import (
 
 var (
   partsCache *lru.Cache
+	heightGauge = metrics.NewMinorGauge("storage/height")
 )
 
 type currentStorage struct {
@@ -183,6 +185,7 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
   if s.layers[s.latestHash].weight().Cmp(newLayer.weight()) < 0 {
     // TODO: Maybe need to use an atomic value for s.latestHash
     log.Debug("New heaviest block", "hash", hash, "number", number, "oldweight", s.layers[s.latestHash].weight(), "newweight", newLayer.weight())
+    heightGauge.Update(int64(number))
     s.latestHash = hash
   } else {
     log.Debug("Added side block", "hash", hash, "number", number, "headweight", s.layers[s.latestHash].weight(), "sideweight", newLayer.weight())
