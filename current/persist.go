@@ -88,15 +88,28 @@ func preparePersist(layers map[types.Hash]layer) ([]byte, error) {
 	return avro.Marshal(persistLayerSchema, persistLayers)
 }
 
+func removeInvalidLayers(m map[types.Hash]layer, h types.Hash) {
+	layer, ok := m[h]
+	if !ok { return }
+	l, ok := layer.(*memoryLayer)
+	if !ok { return }
+	delete(m, h)
+	for c := range l.children {
+		removeInvalidLayers(m, c)
+	}
+}
+
 func loadMap(m map[types.Hash]layer, persistenceData []byte, mut *sync.RWMutex) (types.Hash, error) {
 	var persistLayers []memLayerPersist
 	if err := avro.Unmarshal(persistLayerSchema, persistenceData, &persistLayers); err != nil {
 		return types.Hash{}, err
 	}
 	parents := make(map[types.Hash]types.Hash)
-	var heaviestHash types.Hash
-	heaviestWeight := new(big.Int)
 	for _, pl := range persistLayers {
+		if _, ok := m[pl.Hash]; ok {
+			// This layer already exists in the map. (Parent layer?)
+			continue
+		}
 		parents[pl.Hash] = pl.Parent
 		l := &memoryLayer{
 			hash: pl.Hash,
@@ -118,10 +131,6 @@ func loadMap(m map[types.Hash]layer, persistenceData []byte, mut *sync.RWMutex) 
 			l.deletesMap[string(key)] = struct{}{}
 		}
 		m[pl.Hash] = l
-		if l.blockWeight.Cmp(heaviestWeight) > 0 {
-			heaviestWeight = l.blockWeight
-			heaviestHash = l.hash
-		}
 	}
 	for childHash, parentHash := range parents {
 		child := m[childHash]
@@ -135,6 +144,25 @@ func loadMap(m map[types.Hash]layer, persistenceData []byte, mut *sync.RWMutex) 
 		}
 		l := child.(*memoryLayer)
 		l.parent = parent
+	}
+	for h, layer := range m {
+		switch l := layer.(type) {
+		case *memoryLayer:
+			// Any memory layers with nil parents at this point are invalid, and they
+			// should be removed along with their children
+			if l.parent == nil {
+				removeInvalidLayers(m, h)
+			}
+		default:
+		}
+	}
+	var heaviestHash types.Hash
+	heaviestWeight := new(big.Int)
+	for h, l := range m {
+		if blockWeight := l.weight(); blockWeight.Cmp(heaviestWeight) > 0 {
+			heaviestWeight = blockWeight
+			heaviestHash = h
+		}
 	}
 	foundDisk := false
 	for next := m[heaviestHash]; next != nil ; next = next.parentLayer() {
