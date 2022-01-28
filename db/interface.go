@@ -7,6 +7,12 @@ type Database interface {
   View(func(Transaction) error) error
   // Update provides a Transaction tht can be used to read from or write to the database
   Update(func(Transaction) error) error
+  // Vacuum takes time to clean up the on-disk representation of data
+  // (compaction or vacuuming, depending on storage engine). Returns true if
+  // any progress was made (running again after a false will have no effect).
+  // This may result in an optimally compact database, and multiple runs may be
+  // necessary
+  Vacuum() bool
   Close()
 }
 
