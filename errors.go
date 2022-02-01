@@ -6,6 +6,6 @@ import (
 
 var (
   ErrNotFound = errors.New("Not Found")
-  ErrLayerNotFound = errors.New("Layer Not Found")
+  ErrLayerNotFound = errors.New("Block Not Found")
 	ErrWriteToReadOnly = errors.New("attempted write to read-only transaction")
 )
