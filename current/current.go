@@ -126,14 +126,15 @@ func (s *currentStorage) Close() error {
 // View returns a transaction for interfacing with the layer indicated by the
 // specified hash
 func (s *currentStorage) View(hash types.Hash, fn func(storage.Transaction) error) error {
+  var once sync.Once
+  s.mut.RLock()
+  defer once.Do(s.mut.RUnlock) // defer in case there's a DB error for the view. Use once so we don't multiply unlock
   layer, ok := s.layers[hash]
   if !ok {
     return storage.ErrLayerNotFound
   }
-  s.mut.RLock()
   txlayer := layer.tx()
-  var once sync.Once
-  defer once.Do(s.mut.RUnlock) // defer in case there's a DB error for the view. Use once so we don't multiply unlock
+
   return s.db.View(func(tr db.Transaction) error {
     once.Do(s.mut.RUnlock) // We unlock once both the txlayer and db transaction have been created, ensuring that they are synchronized
     ctr := &currentTransaction{
