@@ -176,7 +176,6 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
     children: make(map[types.Hash]*memoryLayer),
     mut: &s.mut,
   }
-  s.layers[hash] = newLayer
   for _, kv := range updates {
     newLayer.updatesMap[string(kv.Key)] = kv.Value
   }
@@ -193,12 +192,15 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
   }
   changes, deletions, err := parentLayer.consolidate(newLayer)
   if err != nil { return err }
+  s.mut.Lock()
+  s.layers[hash] = newLayer
   for h, l := range changes {
     s.layers[h] = l
   }
   for d := range deletions {
     delete(s.layers, d)
   }
+  s.mut.Unlock()
   return nil
 }
 
