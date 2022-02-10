@@ -182,6 +182,9 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
   for _, k := range deletes {
     newLayer.deletesMap[string(k)] = struct{}{}
   }
+  changes, deletions, err := parentLayer.consolidate(newLayer)
+  if err != nil { return err }
+  s.mut.Lock()
   if s.layers[s.latestHash].weight().Cmp(newLayer.weight()) < 0 {
     // TODO: Maybe need to use an atomic value for s.latestHash
     log.Debug("New heaviest block", "hash", hash, "number", number, "oldweight", s.layers[s.latestHash].weight(), "newweight", newLayer.weight())
@@ -190,9 +193,6 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
   } else {
     log.Debug("Added side block", "hash", hash, "number", number, "headweight", s.layers[s.latestHash].weight(), "sideweight", newLayer.weight())
   }
-  changes, deletions, err := parentLayer.consolidate(newLayer)
-  if err != nil { return err }
-  s.mut.Lock()
   s.layers[hash] = newLayer
   for h, l := range changes {
     s.layers[h] = l
@@ -261,7 +261,9 @@ func (s *currentStorage) NumberToHash(num uint64) (types.Hash, error) {
 // Resumption returns the cardinal-streams resumption token of the latest
 // block.
 func (s *currentStorage) LatestBlock() (types.Hash, uint64, *big.Int, []byte) {
+  s.mut.RLock()
   latest := s.layers[s.latestHash]
+  s.mut.RUnlock()
   return latest.blockInfo()
 }
 
