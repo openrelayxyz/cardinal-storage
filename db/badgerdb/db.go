@@ -69,7 +69,7 @@ func (it *badgerIterator) Next() bool {
 }
 
 func (it *badgerIterator) Key() []byte {
-	return it.item.Key()
+	return it.item.KeyCopy(nil)
 }
 func (it *badgerIterator) Value() []byte {
 	val, err := it.item.ValueCopy(nil)

@@ -65,6 +65,40 @@ func TestUpdateTx(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 }
+func TestUpdateTxDelete(t *testing.T) {
+	dir, er := os.MkdirTemp("", "testdir")
+	if er != nil {
+		t.Fatalf(er.Error())
+	}
+	path := dir + "/test.db"
+	var db, rdb dbpkg.Database
+	var err error
+	defer os.RemoveAll(dir)
+	db, err = New(path)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	err = db.Update(func(tx dbpkg.Transaction) error {
+		if err := tx.Put([]byte("Goodbuy"), []byte("Horses")); err != nil {
+			return err
+		}
+		return tx.Delete([]byte("Goodbuy"))
+	})
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	db.Close()
+	rdb, err = NewReadOnly(path)
+	err = rdb.View(func(tx dbpkg.Transaction) error {
+		if _, err := tx.Get([]byte("Goodbuy")); err == nil {
+			t.Errorf("Expected key to be empty")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+}
 
 func TestIterTx(t *testing.T) {
 	dir, er := os.MkdirTemp("", "testdir")
