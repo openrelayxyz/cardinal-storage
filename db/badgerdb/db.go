@@ -39,6 +39,11 @@ type badgerTx struct {
 	reserves map[string][]byte
 }
 
+type badgerBatchWriter struct {
+	wb       *badger.WriteBatch
+	reserves map[string][]byte
+}
+
 type badgerIterator struct {
 	it     *badger.Iterator
 	prefix []byte
@@ -150,6 +155,25 @@ func (tx *badgerTx) Iterator(prefix []byte) dbpkg.Iterator {
 	return it
 }
 
+func (wb *badgerBatchWriter) Put(key, value []byte) error {
+	return wb.wb.Set(key, value)
+}
+
+func (wb *badgerBatchWriter) PutReserve(key []byte, size int) ([]byte, error) {
+	wb.reserves[string(key)] = make([]byte, size)
+	return wb.reserves[string(key)], nil
+}
+
+func (wb *badgerBatchWriter) Delete(key []byte) error {
+	return wb.wb.Delete(key)
+}
+func (wb *badgerBatchWriter) Flush() error {
+	return wb.wb.Flush()
+}
+func (wb *badgerBatchWriter) Cancel() {
+	wb.wb.Cancel()
+}
+
 func (db *Database) Update(fn func(dbpkg.Transaction) error) error {
 	return db.db.Update(func(btx *badger.Txn) error {
 		tx := &badgerTx{writable: true, tx: btx, reserves: make(map[string][]byte)}
@@ -169,6 +193,13 @@ func (db *Database) View(fn func(dbpkg.Transaction) error) error {
 		tx := &badgerTx{writable: false, tx: btx}
 		return fn(tx)
 	})
+}
+
+func (db *Database) BatchWriter() dbpkg.BatchWriter {
+	return &badgerBatchWriter{
+		wb: db.db.NewWriteBatch(),
+
+	}
 }
 
 func (db *Database) Vacuum() bool {

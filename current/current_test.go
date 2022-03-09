@@ -251,7 +251,7 @@ func TestDepth(t *testing.T) {
   if err := s.View(types.HexToHash("a"), func(tr storage.Transaction) error {
     if data, err := tr.Get([]byte("b")); err != nil {
       return err
-    } else if string(data) != "2" { t.Errorf("Unexpected value for a") }
+    } else if string(data) != "2" { t.Errorf("Unexpected value for a: %v", string(data)) }
     return nil
   }); err != nil { t.Errorf( "Unexpected error: %v", err )}
 }

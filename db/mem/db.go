@@ -8,6 +8,7 @@ import (
   "testing"
   dbpkg "github.com/openrelayxyz/cardinal-storage/db"
   "github.com/openrelayxyz/cardinal-storage"
+  log "github.com/inconshreveable/log15"
 )
 
 type Database struct {
@@ -78,6 +79,18 @@ func (db *Database) Update(fn func(tx dbpkg.Transaction) error) error {
   db.locker.Lock()
   defer db.locker.Unlock()
   return tx.apply(db.data)
+}
+
+func (db *Database) BatchWriter() dbpkg.BatchWriter {
+  return &writeBatch{
+    &fullTransaction{
+      db: db,
+      changes: make(map[string][]byte),
+      deletes: make(map[string]struct{}),
+      origValues: make(map[string][]byte),
+      returnedValues: make(map[string][]byte),
+    },
+  }
 }
 
 func (db *Database) Close() {}
@@ -181,6 +194,27 @@ type fullTransaction struct{
   origValues map[string][]byte
   returnedValues map[string][]byte
 }
+
+type writeBatch struct {
+	tx *fullTransaction
+}
+
+func (wb *writeBatch) Put(key, value[]byte) error {
+	return wb.tx.Put(key, value)
+}
+func (wb *writeBatch) PutReserve(key []byte, size int) ([]byte, error) {
+	return wb.tx.PutReserve(key, size)
+}
+func (wb *writeBatch) Delete(key []byte) error {
+	return wb.tx.Delete(key)
+}
+
+func (wb *writeBatch) Flush() error {
+	log.Debug("Flushing")
+	return wb.tx.apply(wb.tx.db.data)
+}
+
+func (wb *writeBatch) Cancel() {}
 
 func (tx *fullTransaction) ZeroCopyGet(key []byte, fn func([]byte) error) error {
   val, err := tx.Get(key)

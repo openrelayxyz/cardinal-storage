@@ -5,8 +5,10 @@ package db
 type Database interface {
   // View provides a Transaction that can be used to read from the database
   View(func(Transaction) error) error
-  // Update provides a Transaction tht can be used to read from or write to the database
+  // Update provides a Transaction that can be used to read from or write to the database
   Update(func(Transaction) error) error
+  BatchWriter() BatchWriter
+
   // Vacuum takes time to clean up the on-disk representation of data
   // (compaction or vacuuming, depending on storage engine). Returns true if
   // any progress was made (running again after a false will have no effect).
@@ -16,20 +18,18 @@ type Database interface {
   Close()
 }
 
-// Transaction allows for atomic interaction with the database. It can be used
-// to retrieve data or update the database, and a transaction should provide a
-// consistent view (changes made to the database by other transactions will not
-// effect the results returned by a transaction that was alread open)
-type Transaction interface {
-  // Get returns the value stored for a given key. Note that modifying the
-  // value returned here is unsafe, and transactions may return an error if
-  // this value is modified.
-  Get([]byte) ([]byte, error)
-  // ZeroCopyGet invokes a closure, providing the value stored at the specified
-  // key. This value must only be accessed within the closure, and the slice
-  // may be modified after the closure finishes executing. The data must be
-  // parsed and / or copied within the closure.
-  ZeroCopyGet([]byte, func([]byte) error) error
+type BatchWriter interface {
+  Writer
+  // Flush must be called to ensure that any write operations are completed
+  Flush() error
+  // Cancel must be called if the BatchWriter is going to be discarded without
+  // being written. Note that if the write buffer is filled, it can be flushed
+  // without explicitly calling Flush(), and Cancel() will not undo those
+  // writes.
+  Cancel()
+}
+
+type Writer interface {
   // Put sets a value at a specified key
   Put([]byte, []byte) error
   // PutReserve returns a byte slice of the specified size that can be updated
@@ -41,6 +41,23 @@ type Transaction interface {
   PutReserve([]byte, int) ([]byte, error)
   // Delete removes a key from the database
   Delete([]byte) error
+}
+
+// Transaction allows for atomic interaction with the database. It can be used
+// to retrieve data or update the database, and a transaction should provide a
+// consistent view (changes made to the database by other transactions will not
+// effect the results returned by a transaction that was alread open)
+type Transaction interface {
+  Writer
+  // Get returns the value stored for a given key. Note that modifying the
+  // value returned here is unsafe, and transactions may return an error if
+  // this value is modified.
+  Get([]byte) ([]byte, error)
+  // ZeroCopyGet invokes a closure, providing the value stored at the specified
+  // key. This value must only be accessed within the closure, and the slice
+  // may be modified after the closure finishes executing. The data must be
+  // parsed and / or copied within the closure.
+  ZeroCopyGet([]byte, func([]byte) error) error
   // Iterator returns an iterator object that returns key / value pairs
   // beginning with the specified prefix. Depending on the underlying database
   // engine, the Iterator may or may not be ordered.
