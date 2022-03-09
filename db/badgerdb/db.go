@@ -69,7 +69,7 @@ func (it *badgerIterator) Next() bool {
 }
 
 func (it *badgerIterator) Key() []byte {
-	return it.item.Key()
+	return it.item.KeyCopy(nil)
 }
 func (it *badgerIterator) Value() []byte {
 	val, err := it.item.ValueCopy(nil)
@@ -171,6 +171,10 @@ func (db *Database) View(fn func(dbpkg.Transaction) error) error {
 	})
 }
 
+func (db *Database) Vacuum() bool {
+	err := db.db.RunValueLogGC(0.5)
+	return err == nil
+}
 // // Database allows the persistence and retrieval of key / value data.
 // // Transaction allows for atomic interaction with the database. It can be used
 // // to retrieve data or update the database, and a transaction should provide a

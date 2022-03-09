@@ -82,6 +82,10 @@ func (db *Database) Update(fn func(tx dbpkg.Transaction) error) error {
 
 func (db *Database) Close() {}
 
+func (db *Database) Vacuum() bool {
+	return false
+}
+
 type viewTransaction struct {
   db *Database
   origValues map[string][]byte

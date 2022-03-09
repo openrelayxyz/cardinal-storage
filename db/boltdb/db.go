@@ -6,6 +6,7 @@ import (
 
 	bolt "github.com/boltdb/bolt"
 	dbpkg "github.com/openrelayxyz/cardinal-storage/db"
+	log "github.com/inconshreveable/log15"
 )
 
 type Database struct {
@@ -53,6 +54,11 @@ func (db *Database) View(fn func(dbpkg.Transaction) error) error {
 
 func (db *Database) Close() {
 	db.db.Close()
+}
+
+func (db *Database) Vacuum() bool {
+	log.Info("Vacuuming is not currently supported by the Cardinal Bolt implementation")
+	return false
 }
 
 func (tx *boltTx) Get(key []byte) ([]byte, error) {

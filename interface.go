@@ -3,6 +3,7 @@ package storage
 import (
   "fmt"
   "math/big"
+  "time"
   "github.com/openrelayxyz/cardinal-types"
 )
 
@@ -44,6 +45,11 @@ type Storage interface {
 
   // Close cleanly shuts down the storage interface.
   Close() error
+
+  // Vacuum frees space in the database. `rollback` indicates the number of
+  // deltas to retain to support rollbacks, while gcTime is the an approximate
+  // amount of time to spend on database level compaction.
+  Vacuum(rollback uint64, gcTime time.Duration)
 }
 
 type Transaction interface {
