@@ -64,6 +64,36 @@ func TestUpdateTx(t *testing.T) {
 	}
 }
 
+func TestBw(t *testing.T) {
+	dir, er := os.MkdirTemp("", "testdir")
+	if er != nil {
+		t.Fatalf(er.Error())
+	}
+	path := dir + "/test.db"
+	var db dbpkg.Database
+	var err error
+	db, err = Open(path, 0600, nil)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	bw := db.BatchWriter()
+	err = bw.Put([]byte("Hello"), []byte("World"))
+	bw.Flush()
+	if err != nil { t.Fatalf(err.Error()) }
+	err = db.View(func(tx dbpkg.Transaction) error {
+		if err := tx.Put([]byte("Hello"), []byte("World")); err == nil {
+			t.Errorf("Expected error calling Put() inside view tx")
+		}
+		val, err := tx.Get([]byte("Hello"))
+		if err != nil { t.Fatalf(err.Error()) }
+		if !bytes.Equal(val, []byte("World")) {
+			t.Errorf("Unexpected value: %v", string(val))
+		}
+		return nil
+	})
+	if err != nil { t.Fatalf(err.Error()) }
+}
+
 func TestIterTx(t *testing.T) {
 	dir, er := os.MkdirTemp("", "testdir")
 	if er != nil {

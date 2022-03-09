@@ -536,8 +536,8 @@ func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[t
     }
     deletes[l.getHash()] = struct{}{}
     changes[child.hash] = l
-    if err := l.storage.db.Update(func(tr db.Transaction) error {
-      delta := newDelta(tr)
+    if err := l.storage.db.View(func(tr db.Transaction) error {
+      delta := newDelta(tr, l.storage.db.BatchWriter())
       numberBytes := make([]byte, 8)
       binary.BigEndian.PutUint64(numberBytes, child.number())
       delta.put(HashToNumKey(child.hash), numberBytes)
@@ -565,8 +565,7 @@ func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[t
       l.depth = child.depth
       l.children = child.children
       l.resume = child.resume
-      delta.finalize(child.number())
-      return nil
+      return delta.finalize(child.number())
     }); err != nil {
       return nil, nil, err
     }
@@ -628,8 +627,8 @@ func (l *diskLayer) rollback(number uint64) error {
   l.children = make(map[types.Hash]*memoryLayer)
   l.depth = 0
   for l.num > number {
-    if err := l.storage.db.Update(func(tr db.Transaction) error {
-      d, err := loadDelta(l.num, tr)
+    if err := l.storage.db.View(func(tr db.Transaction) error {
+      d, err := loadDelta(l.num, tr, l.storage.db.BatchWriter())
       if err != nil { return fmt.Errorf("error loading delta: %v", err) }
       if err := d.apply(); err != nil { return fmt.Errorf("error applying delta: %v", err) }
       l.num--

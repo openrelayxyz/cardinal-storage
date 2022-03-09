@@ -18,6 +18,29 @@ type boltTx struct {
 	reserves map[string][]byte
 }
 
+type boltWriteBatch struct {
+	btx *bolt.Tx
+	tx *boltTx
+}
+
+func (wb *boltWriteBatch) Put(key, value[]byte) error {
+	return wb.tx.Put(key, value)
+}
+func (wb *boltWriteBatch) PutReserve(key []byte, size int) ([]byte, error) {
+	return wb.tx.PutReserve(key, size)
+}
+func (wb *boltWriteBatch) Delete(key []byte) error {
+	return wb.tx.Delete(key)
+}
+
+func (wb *boltWriteBatch) Flush() error {
+	return wb.btx.Commit()
+}
+
+func (wb *boltWriteBatch) Cancel() {
+	wb.btx.Rollback()
+}
+
 type boltIterator struct {
 	cursor  *bolt.Cursor
 	first   bool
@@ -50,6 +73,19 @@ func (db *Database) View(fn func(dbpkg.Transaction) error) error {
 			reserves: make(map[string][]byte),
 		})
 	})
+}
+
+func (db *Database) BatchWriter() dbpkg.BatchWriter {
+	tx, err := db.db.Begin(true)
+	if err != nil { panic(err.Error()) }
+	b, _ := tx.CreateBucketIfNotExists([]byte("Cardinal"))
+	return &boltWriteBatch{
+		btx: tx,
+		tx: &boltTx{
+			bk:       b,
+			reserves: make(map[string][]byte),
+		},
+	}
 }
 
 func (db *Database) Close() {
