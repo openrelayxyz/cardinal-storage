@@ -1,0 +1,87 @@
+orbs:
+  aws-cli: circleci/aws-cli@1.0.0 #See: https://circleci.com/orbs/registry/orb/circleci/aws-cli
+version: 2.1
+jobs:
+  test:
+    docker:
+      - image: cimg/go:1.17.2
+    steps:
+      - checkout
+      - run:
+          name: Prep env
+          command: |
+            mkdir -p /home/circleci/go/src
+            mkdir artifacts
+            go mod tidy
+
+      - run:
+          name: test abi
+          command: for x in $(/usr/bin/ls cmd); do go test ./cmd/$x; done
+  build_cardinal_push:
+    docker: # run the steps with Docker
+      - image: cimg/go:1.17.2 # ...with this image as the primary container
+      # this is where all `steps` will run
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Prep env
+          command: |
+            mkdir -p /home/circleci/go/src
+            mkdir artifacts
+            go mod tidy
+      - run:
+          name: build binaries
+          command: |
+            sudo DEBIAN_FRONTEND=noninteractive apt update
+            sudo DEBIAN_FRONTEND=noninteractive apt install gcc-aarch64-linux-gnu libc6-dev-arm64-cross wget -y
+            # PLUGETH_UTILS_VERSION=$(grep "github.com/openrelayxyz/plugeth-utils v" go.mod | cut -d ' ' -f 2)
+            export GOPATH=$HOME/go
+            export GOARCH=amd64
+            # export PLUGETH_UTILS_VERSION=$(grep "github.com/openrelayxyz/plugeth-utils v" go.mod | cut -d ' ' -f 2)
+            for x in $(/usr/bin/ls cmd); do go build -o artifacts/$x-linux-amd64-${CIRCLE_TAG} ./cmd/$x; done
+            for x in $(/usr/bin/ls cmd); do CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOARCH=arm64 go build -o artifacts/$x-linux-arm64-${CIRCLE_TAG} ./cmd/$x; done
+      - run:
+          name: "Publish Release on GitHub"
+          command: |
+            go get github.com/tcnksm/ghr
+            # PLUGETH_UTILS_VERSION=$(grep "github.com/openrelayxyz/cardinal-storage v" go.mod | cut -d ' ' -f 2)
+            NAME=cardinal-storage-${CIRCLE_TAG}
+            VERSION=${CIRCLE_TAG}
+            ghr  -draft -t ${GITHUB_TOKEN} -u ${CIRCLE_PROJECT_USERNAME} -r ${CIRCLE_PROJECT_REPONAME} -c ${CIRCLE_SHA1} -name $NAME -delete ${VERSION} ./artifacts/
+      - aws-cli/setup: #See: https://circleci.com/orbs/registry/orb/circleci/aws-cli
+          aws-access-key-id: ACCESS_KEY
+          aws-secret-access-key: SECRET_ACCESS_KEY
+          aws-region: AWS_REGION
+      - run:
+          name: push to s3
+          command: |
+            aws s3 cp ./artifacts s3://ethercattle-binaries/cardinal-storage/${CIRCLE_TAG} --recursive --acl=public-read
+      - run:
+          name: Message Slack
+          command: |
+              ./.circleci/slack-post.sh -w $SLACK_WEBHOOK -m "*cardinal-evm*:\nTag: $CIRCLE_TAG \n"
+
+workflows:
+  version: 2
+  test:
+    jobs:
+      - test:
+          filters:
+            tags:
+              ignore: /^v.*/
+  build_and_test:
+    jobs:
+      - test:
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
+      - build_cardinal_push:
+          context: Rivet
+          requires:
+            - test
+          filters:
+            tags:
+              only: /^v.*/
