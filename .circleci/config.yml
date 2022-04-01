@@ -39,8 +39,8 @@ jobs:
             export GOPATH=$HOME/go
             export GOARCH=amd64
             # export PLUGETH_UTILS_VERSION=$(grep "github.com/openrelayxyz/plugeth-utils v" go.mod | cut -d ' ' -f 2)
-            for x in $(/usr/bin/ls cmd); do go build -o artifacts/$x-linux-amd64-${CIRCLE_TAG} ./cmd/$x; done
-            for x in $(/usr/bin/ls cmd); do CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOARCH=arm64 go build -o artifacts/$x-linux-arm64-${CIRCLE_TAG} ./cmd/$x; done
+            for x in $(/usr/bin/ls cmd); do go build -o artifacts/$x-linux-amd64 ./cmd/$x; done
+            for x in $(/usr/bin/ls cmd); do CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOARCH=arm64 go build -o artifacts/$x-linux-arm64 ./cmd/$x; done
       - run:
           name: "Publish Release on GitHub"
           command: |
@@ -60,7 +60,7 @@ jobs:
       - run:
           name: Message Slack
           command: |
-              ./.circleci/slack-post.sh -w $SLACK_WEBHOOK -m "*cardinal-evm*:\nTag: $CIRCLE_TAG \n"
+              ./.circleci/slack-post.sh -w $SLACK_WEBHOOK -m "*cardinal-storage*:\nTag: $CIRCLE_TAG \n"
 
 workflows:
   version: 2
