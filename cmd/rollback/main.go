@@ -16,8 +16,10 @@ func main() {
 	if err != nil { panic(err.Error()) }
 	if i < 0 {
 		_, n, _, _ := s.LatestBlock()
-		i = int(n) - i
+		i = int(n) + i
 	}
 	if err := s.Rollback(uint64(i)); err != nil { panic(err.Error()) }
-	fmt.Println("Done.")
+	s.Close()
+	db.Close()
+	fmt.Printf("Done. Set back to %v.\n", i)
 }
