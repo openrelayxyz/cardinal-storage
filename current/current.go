@@ -242,9 +242,9 @@ func (s *currentStorage) LatestHash() types.Hash {
 // NumberToHash returns the hash of the block with the specified number that
 // is an ancestor of the block at `LatestHash()`
 func (s *currentStorage) NumberToHash(num uint64) (types.Hash, error) {
-	s.mut.Lock()
+  s.mut.RLock()
   layer := s.layers[s.latestHash]
-	defer s.mut.Unlock()
+  s.mut.RUnlock()
   if layer.number() < num {
     return types.Hash{}, fmt.Errorf("requested hash of future block %v", num)
   }
