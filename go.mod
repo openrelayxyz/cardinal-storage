@@ -7,7 +7,7 @@ require (
 	github.com/boltdb/bolt v1.3.1
 	github.com/dgraph-io/badger/v3 v3.2103.1
 	github.com/go-stack/stack v1.8.0 // indirect
-	github.com/hamba/avro v1.5.6
+	github.com/hamba/avro v1.6.6
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/inconshreveable/log15 v0.0.0-20201112154412-8562bdadbbac
 	github.com/mattn/go-colorable v0.1.0 // indirect
