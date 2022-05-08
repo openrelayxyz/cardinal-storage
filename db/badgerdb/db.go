@@ -198,7 +198,6 @@ func (db *Database) View(fn func(dbpkg.Transaction) error) error {
 func (db *Database) BatchWriter() dbpkg.BatchWriter {
 	return &badgerBatchWriter{
 		wb: db.db.NewWriteBatch(),
-
 	}
 }
 
@@ -206,6 +205,7 @@ func (db *Database) Vacuum() bool {
 	err := db.db.RunValueLogGC(0.5)
 	return err == nil
 }
+
 // // Database allows the persistence and retrieval of key / value data.
 // // Transaction allows for atomic interaction with the database. It can be used
 // // to retrieve data or update the database, and a transaction should provide a
