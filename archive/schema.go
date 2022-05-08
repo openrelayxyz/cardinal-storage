@@ -5,20 +5,18 @@ import (
 	"github.com/openrelayxyz/cardinal-types"
 )
 
-
 var (
-	HashToNumPrefix = []byte("h")
-	NumToHashPrefix = []byte("n")
+	HashToNumPrefix      = []byte("h")
+	NumToHashPrefix      = []byte("n")
 	NumberToWeightPrefix = []byte("w")
-	RangePrefix = []byte("r")
-	DataPrefix = []byte("v")
+	RangePrefix          = []byte("r")
+	DataPrefix           = []byte("v")
 	ResumptionDataPrefix = []byte("e")
-	RollbackPrefix = []byte("u") // u for undo
-	LatestBlockHashKey = []byte("LatestBlockHash")
+	RollbackPrefix       = []byte("u") // u for undo
+	LatestBlockHashKey   = []byte("LatestBlockHash")
 	LatestBlockWeightKey = []byte("LatestBlockWeight")
 	MemoryPersistenceKey = []byte("MemoryPersistence")
 )
-
 
 func NumberToWeightKey(n uint64) []byte {
 	data := make([]byte, 8)

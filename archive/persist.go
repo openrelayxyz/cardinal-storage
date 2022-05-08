@@ -2,10 +2,10 @@ package archive
 
 import (
 	"fmt"
-	"math/big"
-	"github.com/openrelayxyz/cardinal-types"
-	"github.com/openrelayxyz/cardinal-storage"
 	"github.com/hamba/avro"
+	"github.com/openrelayxyz/cardinal-storage"
+	"github.com/openrelayxyz/cardinal-types"
+	"math/big"
 	"sync"
 )
 
@@ -52,16 +52,15 @@ var (
 	}`)
 )
 
-
-type memLayerPersist struct{
-	Parent   types.Hash `avro:"parent"`
-	Number   int64      `avro:"number"`
-	Hash     types.Hash `avro:"hash"`
-	Weight   []byte     `avro:"weight"`
+type memLayerPersist struct {
+	Parent   types.Hash         `avro:"parent"`
+	Number   int64              `avro:"number"`
+	Hash     types.Hash         `avro:"hash"`
+	Weight   []byte             `avro:"weight"`
 	Updates  []storage.KeyValue `avro:"updates"`
-	Deletes  [][]byte   `avro:"deletes"`
-	Resume   []byte     `avro:"resume"`
-	Children []types.Hash `avro:"children"`
+	Deletes  [][]byte           `avro:"deletes"`
+	Resume   []byte             `avro:"resume"`
+	Children []types.Hash       `avro:"children"`
 }
 
 func preparePersist(layers map[types.Hash]layer) ([]byte, error) {
@@ -74,14 +73,14 @@ func preparePersist(layers map[types.Hash]layer) ([]byte, error) {
 				children = append(children, k)
 			}
 			persistLayers = append(persistLayers, memLayerPersist{
-				Parent: l.parentLayer().getHash(),
-				Number: int64(l.num),
-				Hash: l.hash,
-				Weight: l.blockWeight.Bytes(),
-				Updates: l.updates,
-				Deletes: l.deletes,
+				Parent:   l.parentLayer().getHash(),
+				Number:   int64(l.num),
+				Hash:     l.hash,
+				Weight:   l.blockWeight.Bytes(),
+				Updates:  l.updates,
+				Deletes:  l.deletes,
 				Children: children,
-				Resume: l.resume,
+				Resume:   l.resume,
 			})
 		}
 	}
@@ -90,9 +89,13 @@ func preparePersist(layers map[types.Hash]layer) ([]byte, error) {
 
 func removeInvalidLayers(m map[types.Hash]layer, h types.Hash) {
 	layer, ok := m[h]
-	if !ok { return }
+	if !ok {
+		return
+	}
 	l, ok := layer.(*memoryLayer)
-	if !ok { return }
+	if !ok {
+		return
+	}
 	delete(m, h)
 	for c := range l.children {
 		removeInvalidLayers(m, c)
@@ -112,17 +115,17 @@ func loadMap(m map[types.Hash]layer, persistenceData []byte, mut *sync.RWMutex) 
 		}
 		parents[pl.Hash] = pl.Parent
 		l := &memoryLayer{
-			hash: pl.Hash,
-			parent: nil,
-			num: uint64(pl.Number),
+			hash:        pl.Hash,
+			parent:      nil,
+			num:         uint64(pl.Number),
 			blockWeight: new(big.Int).SetBytes(pl.Weight),
-			updatesMap: make(map[string][]byte),
-			updates: pl.Updates,
-			deletesMap: make(map[string]struct{}),
-			deletes: pl.Deletes,
-			resume: pl.Resume,
-			children: make(map[types.Hash]*memoryLayer),
-			mut: mut,
+			updatesMap:  make(map[string][]byte),
+			updates:     pl.Updates,
+			deletesMap:  make(map[string]struct{}),
+			deletes:     pl.Deletes,
+			resume:      pl.Resume,
+			children:    make(map[types.Hash]*memoryLayer),
+			mut:         mut,
 		}
 		for _, kv := range pl.Updates {
 			l.updatesMap[string(kv.Key)] = kv.Value
@@ -135,12 +138,14 @@ func loadMap(m map[types.Hash]layer, persistenceData []byte, mut *sync.RWMutex) 
 	for childHash, parentHash := range parents {
 		child := m[childHash]
 		parent, ok := m[parentHash]
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 		switch l := parent.(type) {
 		case *memoryLayer:
 			l.children[childHash] = child.(*memoryLayer)
-		// case *archiveLayer:
-		// 	l.children[childHash] = child.(*memoryLayer)
+			// case *archiveLayer:
+			// 	l.children[childHash] = child.(*memoryLayer)
 		}
 		l := child.(*memoryLayer)
 		l.parent = parent
@@ -165,7 +170,7 @@ func loadMap(m map[types.Hash]layer, persistenceData []byte, mut *sync.RWMutex) 
 		}
 	}
 	foundDisk := false
-	for next := m[heaviestHash]; next != nil ; next = next.parentLayer() {
+	for next := m[heaviestHash]; next != nil; next = next.parentLayer() {
 		if next.persisted() {
 			foundDisk = true
 			break
