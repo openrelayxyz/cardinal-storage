@@ -1,17 +1,13 @@
 package main
 
 import (
-	"github.com/openrelayxyz/cardinal-storage/current"
-	"github.com/openrelayxyz/cardinal-storage/db/badgerdb"
+	"github.com/openrelayxyz/cardinal-storage/resolver"
 	"os"
 	"strconv"
 	"fmt"
 )
 func main() {
-	db, err := badgerdb.New(os.Args[1])
-	if err != nil { panic(err.Error()) }
-	s, err := current.Open(db, 128, nil)
-	if err != nil { panic(err.Error()) }
+	s, err := resolver.ResolveStorage(os.Args[1], 128, nil)
 	i, err := strconv.Atoi(os.Args[2])
 	if err != nil { panic(err.Error()) }
 	if i < 0 {
@@ -20,6 +16,5 @@ func main() {
 	}
 	if err := s.Rollback(uint64(i)); err != nil { panic(err.Error()) }
 	s.Close()
-	db.Close()
 	fmt.Printf("Done. Set back to %v.\n", i)
 }

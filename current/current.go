@@ -135,6 +135,7 @@ func (s *currentStorage) Close() error {
 	}); err != nil {
 		return err
 	}
+	s.db.Close()
 	return nil
 }
 
