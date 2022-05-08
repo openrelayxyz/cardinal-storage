@@ -5,8 +5,7 @@ import (
   "encoding/json"
   "github.com/openrelayxyz/cardinal-types"
   "github.com/openrelayxyz/cardinal-types/hexutil"
-  "github.com/openrelayxyz/cardinal-storage/current"
-  "github.com/openrelayxyz/cardinal-storage/db/badgerdb"
+  "github.com/openrelayxyz/cardinal-storage/resolver"
   "os"
   log "github.com/inconshreveable/log15"
 )
@@ -21,9 +20,8 @@ type Record struct{
 }
 
 func main() {
-  db, err := badgerdb.New(os.Args[1])
+	init, err := resolver.ResolveInitializer(os.Args[1])
   if err != nil { panic(err.Error()) }
-  init := current.NewInitializer(db)
   reader := bufio.NewReader(os.Stdin)
   record := []byte{}
   for counter := 0 ; err == nil ; counter++ {
@@ -49,5 +47,4 @@ func main() {
   }
   if err != nil { panic(err.Error())}
   init.Close()
-  db.Close()
 }

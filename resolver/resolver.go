@@ -39,3 +39,31 @@ func ResolveStorage(path string, maxDepth int64, whitelist map[uint64]types.Hash
 	}
 	return nil, storage.ErrUnknownStorageType
 }
+func ResolveInitializer(path string) (storage.Initializer, error) {
+	fileInfo, err := os.Stat(path)
+	var db dbpkg.Database
+	if fileInfo.IsDir() {
+		db, err = badgerdb.New(path)
+	} else {
+		db, err = boltdb.Open(path, 0600, nil)
+	}
+	if err != nil { return nil, err }
+	var version []byte
+	if err := db.Update(func(tx dbpkg.Transaction) error {
+		version, err = tx.Get([]byte("CardinalStorageVersion"))
+		if err == storage.ErrNotFound {
+			version = []byte("CurrentStorage1")
+			tx.Put([]byte("CardinalStorageVersion"), []byte("CurrentStorage1"))
+		}
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	switch string(version) {
+	case "CurrentStorage1":
+		return current.NewInitializer(db), nil
+	case "ArchiveStorage1":
+		return archive.NewInitializer(db), nil
+	}
+	return nil, storage.ErrUnknownStorageType
+}

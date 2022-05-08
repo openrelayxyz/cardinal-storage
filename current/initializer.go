@@ -62,6 +62,7 @@ func (init *Initializer) Close() {
 		}
 		return nil
 	})
+	init.db.Close()
 }
 
 func (init *Initializer) SetBlockData(hash, parentHash types.Hash, number uint64, weight *big.Int) {
