@@ -7,12 +7,15 @@ import (
   dbpkg "github.com/openrelayxyz/cardinal-storage/db"
   "github.com/openrelayxyz/cardinal-types"
   log "github.com/inconshreveable/log15"
+  "github.com/RoaringBitmap/roaring/roaring64"
 )
 
 type Initializer struct {
   db dbpkg.Database
   done chan struct{}
   kv chan storage.KeyValue
+  number uint64
+  bitmap []byte
 }
 
 func NewInitializer(db dbpkg.Database) *Initializer {
@@ -49,6 +52,9 @@ func NewInitializer(db dbpkg.Database) *Initializer {
 }
 
 func (init *Initializer) Close() {
+  init.db.Update(func(tx dbpkg.Transaction) error {
+    return tx.Put([]byte("CardinalStorageVersion"), []byte("ArchiveStorage1"))
+  })
   close(init.kv)
   <-init.done
   init.db.View(func(tr dbpkg.Transaction) error {
@@ -64,6 +70,10 @@ func (init *Initializer) SetBlockData(hash, parentHash types.Hash, number uint64
   binary.BigEndian.PutUint64(numberBytes, number)
   parentNumberBytes := make([]byte, 8)
   binary.BigEndian.PutUint64(parentNumberBytes, number - 1)
+  init.number = number
+  bm := roaring64.BitmapOf(number)
+  bmdata, _ := bm.MarshalBinary()
+  init.bitmap = bmdata
   init.kv <- storage.KeyValue{Key: HashToNumKey(hash), Value: numberBytes}
   init.kv <- storage.KeyValue{Key: HashToNumKey(parentHash), Value: parentNumberBytes}
   init.kv <- storage.KeyValue{Key: NumToHashKey(number), Value: hash[:]}
@@ -72,9 +82,7 @@ func (init *Initializer) SetBlockData(hash, parentHash types.Hash, number uint64
   init.kv <- storage.KeyValue{Key: LatestBlockWeightKey, Value: weight.Bytes()}
 }
 
-var zeroBitmap = []byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 58, 48, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 1, 0}
-
 func (init *Initializer) AddData(key, value []byte) {
-  init.kv <- storage.KeyValue{Key: RangeKey(key), Value: zeroBitmap}
+  init.kv <- storage.KeyValue{Key: RangeKey(key), Value: init.bitmap}
   init.kv <- storage.KeyValue{Key: DataKey(key, 0), Value: value}
 }

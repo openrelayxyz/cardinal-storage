@@ -49,6 +49,9 @@ func NewInitializer(db dbpkg.Database) *Initializer {
 }
 
 func (init *Initializer) Close() {
+  init.db.Update(func(tx dbpkg.Transaction) error {
+    return tx.Put([]byte("CardinalStorageVersion"), []byte("CurrentStorage1"))
+  })
   close(init.kv)
   <-init.done
   init.db.View(func(tr dbpkg.Transaction) error {

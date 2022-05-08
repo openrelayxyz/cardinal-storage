@@ -33,6 +33,9 @@ type currentStorage struct {
 func New(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (storage.Storage) {
   if whitelist == nil { whitelist = make(map[uint64]types.Hash)}
   if partsCache == nil { partsCache, _ = lru.New(1024) }
+  sdb.Update(func(tx db.Transaction) error {
+    return tx.Put([]byte("CardinalStorageVersion"), []byte("CurrentStorage1"))
+  })
   s := &currentStorage{
     db: sdb,
     layers: make(map[types.Hash]layer),
