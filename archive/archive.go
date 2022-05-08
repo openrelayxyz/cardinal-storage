@@ -44,10 +44,10 @@ func New(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (stor
     db: sdb,
     layers: make(map[types.Hash]layer),
     whitelist: whitelist,
-		maxDepth: maxDepth,
-		lastStoredHash: types.Hash{},
+    maxDepth: maxDepth,
+    lastStoredHash: types.Hash{},
   }
-	s.layers[types.Hash{}] = &archiveLayer{storage: s, num: 0, w: new(big.Int), hash: types.Hash{}}
+  s.layers[types.Hash{}] = &archiveLayer{storage: s, num: 0, w: new(big.Int), hash: types.Hash{}}
   return  s
 }
 
@@ -59,7 +59,7 @@ func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (sto
     db: sdb,
     layers: make(map[types.Hash]layer),
     whitelist: whitelist,
-		maxDepth: maxDepth,
+    maxDepth: maxDepth,
   }
   if err := sdb.View(func(tr db.Transaction) error {
     hashBytes, err := tr.Get(LatestBlockHashKey)
@@ -78,15 +78,15 @@ func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (sto
       log.Warn("Error reading memory layer. Using disk layer.", "error", err)
       s.latestHash = s.lastStoredHash
     } else {
-			s.layers[s.lastStoredHash], err = s.getLayer(s.lastStoredHash)
-			if err != nil { return err }
+      s.layers[s.lastStoredHash], err = s.getLayer(s.lastStoredHash)
+      if err != nil { return err }
       if h, err := loadMap(s.layers, persistenceData, &s.mut); err != nil {
         log.Warn("Error loading memory layer. Using disk layer.", "error", err)
         s.latestHash = s.lastStoredHash
       } else {
         s.latestHash = h
       }
-			delete(s.layers, s.lastStoredHash)
+      delete(s.layers, s.lastStoredHash)
     }
     log.Debug("Initializing current storage", "hash", s.latestHash, "depth", maxDepth, "disknum", binary.BigEndian.Uint64(numBytes), "latestnum", s.layers[s.latestHash].number())
     return nil
@@ -114,14 +114,14 @@ func (s *archiveStorage) View(hash types.Hash, fn func(storage.Transaction) erro
   var once sync.Once
   s.mut.RLock()
   defer once.Do(s.mut.RUnlock) // defer in case there's a DB error for the view. Use once so we don't multiply unlock
-	layer, err := s.getLayer(hash)
-	switch err {
-	case nil:
-	case storage.ErrNotFound:
-		return storage.ErrLayerNotFound
-	default:
-		return err
-	}
+  layer, err := s.getLayer(hash)
+  switch err {
+  case nil:
+  case storage.ErrNotFound:
+    return storage.ErrLayerNotFound
+  default:
+    return err
+  }
   txlayer := layer.tx()
 
   return s.db.View(func(tr db.Transaction) error {
@@ -150,7 +150,7 @@ func (s *archiveStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
   }
   parentLayer, err := s.getLayer(parentHash)
   if err != nil {
-		log.Info("Not found", "hash", hash, "parent", parentHash)
+    log.Info("Not found", "hash", hash, "parent", parentHash)
     return err
   }
   newLayer := &memoryLayer{
@@ -175,7 +175,7 @@ func (s *archiveStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
   changes, deletions, err := parentLayer.consolidate(newLayer)
   if err != nil { return err }
   s.mut.Lock()
-	// log.Info("latest", "weight", s.latestWeight(), "s", s, "nl", newLayer, "nlw", newLayer.weight())
+  // log.Info("latest", "weight", s.latestWeight(), "s", s, "nl", newLayer, "nlw", newLayer.weight())
   if latestWeight := s.latestWeight(); latestWeight.Cmp(newLayer.weight()) < 0 {
     // TODO: Maybe need to use an atomic value for s.latestHash
     log.Debug("New heaviest block", "hash", hash, "number", number, "oldweight", latestWeight, "newweight", newLayer.weight())
