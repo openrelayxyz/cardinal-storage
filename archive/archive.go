@@ -256,7 +256,9 @@ func (s *archiveStorage) latestWeight() *big.Int {
 // NumberToHash returns the hash of the block with the specified number that
 // is an ancestor of the block at `LatestHash()`
 func (s *archiveStorage) NumberToHash(num uint64) (types.Hash, error) {
+  s.mut.RLock()
   layer := s.layers[s.latestHash]
+  s.mut.RUnlock()
   if layer.number() < num {
     return types.Hash{}, fmt.Errorf("requested hash of future block %v", num)
   }
