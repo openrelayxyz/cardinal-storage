@@ -6,13 +6,12 @@ import (
 	dbpkg "github.com/openrelayxyz/cardinal-storage/db"
 )
 
-
 // Database: The overlay database will return values from the overlay if
 // present, the underlay if not. If `cache` is true, it will cache values
 // retrieved from the underlay into the overlay (caching should only be used
 // if the overlay is expected to have significantly better performance than
 // the underlay).
-type Database struct{
+type Database struct {
 	overlay  dbpkg.Database
 	underlay dbpkg.Database
 	cache    bool
@@ -65,7 +64,7 @@ func (tx *overlayTransaction) Get(key []byte) ([]byte, error) {
 	return v, err
 }
 
-func (tx *overlayTransaction) ZeroCopyGet(key []byte, fn func([]byte) error) (error) {
+func (tx *overlayTransaction) ZeroCopyGet(key []byte, fn func([]byte) error) error {
 	if err := tx.overlaytx.ZeroCopyGet(key, fn); err == nil {
 		return err
 	}
@@ -93,18 +92,18 @@ func (tx *overlayTransaction) Delete(key []byte) error {
 
 func (tx *overlayTransaction) Iterator(prefix []byte) dbpkg.Iterator {
 	return &overlayIterator{
-		tx: tx,
+		tx:    tx,
 		oiter: tx.overlaytx.Iterator(prefix),
 		uiter: tx.overlaytx.Iterator(prefix),
 	}
 }
 
-type overlayIterator struct{
-	tx    *overlayTransaction
+type overlayIterator struct {
+	tx           *overlayTransaction
 	oiter, uiter dbpkg.Iterator
 	odone, udone bool
-	key, val []byte
-	err   error
+	key, val     []byte
+	err          error
 }
 
 func (wi *overlayIterator) Next() bool {
@@ -164,6 +163,8 @@ func (wi *overlayIterator) Error() error {
 func (wi *overlayIterator) Close() error {
 	oerr := wi.oiter.Close()
 	uerr := wi.uiter.Close()
-	if oerr != nil { return oerr }
+	if oerr != nil {
+		return oerr
+	}
 	return uerr
 }
