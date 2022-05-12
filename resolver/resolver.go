@@ -39,7 +39,7 @@ func ResolveStorage(path string, maxDepth int64, whitelist map[uint64]types.Hash
 	}
 	return nil, storage.ErrUnknownStorageType
 }
-func ResolveInitializer(path string) (storage.Initializer, error) {
+func ResolveInitializer(path string, archival bool) (storage.Initializer, error) {
 	fileInfo, err := os.Stat(path)
 	var db dbpkg.Database
 	if fileInfo.IsDir() {
@@ -49,11 +49,17 @@ func ResolveInitializer(path string) (storage.Initializer, error) {
 	}
 	if err != nil { return nil, err }
 	var version []byte
+	if archival {
+		version = []byte("ArchiveStorage1")
+	} else {
+		version = []byte("CurrentStorage1")
+	}
 	if err := db.Update(func(tx dbpkg.Transaction) error {
-		version, err = tx.Get([]byte("CardinalStorageVersion"))
+		v, err := tx.Get([]byte("CardinalStorageVersion"))
 		if err == storage.ErrNotFound {
-			version = []byte("CurrentStorage1")
-			tx.Put([]byte("CardinalStorageVersion"), []byte("CurrentStorage1"))
+			tx.Put([]byte("CardinalStorageVersion"), version)
+		} else {
+			version = v
 		}
 		return err
 	}); err != nil {

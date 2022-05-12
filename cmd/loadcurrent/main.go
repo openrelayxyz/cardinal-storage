@@ -8,6 +8,7 @@ import (
 	"github.com/openrelayxyz/cardinal-types"
 	"github.com/openrelayxyz/cardinal-types/hexutil"
 	"os"
+	"flag"
 )
 
 type Record struct {
@@ -20,7 +21,11 @@ type Record struct {
 }
 
 func main() {
-	init, err := resolver.ResolveInitializer(os.Args[1])
+	archive := flag.Bool("archive", false, "Initialize as an Archive Node")
+
+	flag.CommandLine.Parse(os.Args[1:])
+
+	init, err := resolver.ResolveInitializer(os.Args[1], *archive)
 	if err != nil {
 		panic(err.Error())
 	}
