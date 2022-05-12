@@ -26,8 +26,10 @@ func ResolveStorage(path string, maxDepth int64, whitelist map[uint64]types.Hash
 		if err == storage.ErrNotFound {
 			version = []byte("CurrentStorage1")
 			tx.Put([]byte("CardinalStorageVersion"), []byte("CurrentStorage1"))
+			return nil
+		} else {
+			return err
 		}
-		return err
 	}); err != nil {
 		return nil, err
 	}
@@ -40,8 +42,11 @@ func ResolveStorage(path string, maxDepth int64, whitelist map[uint64]types.Hash
 	return nil, storage.ErrUnknownStorageType
 }
 func ResolveInitializer(path string, archival bool) (storage.Initializer, error) {
-	fileInfo, err := os.Stat(path)
 	var db dbpkg.Database
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
 	if fileInfo.IsDir() {
 		db, err = badgerdb.New(path)
 	} else {
@@ -58,10 +63,12 @@ func ResolveInitializer(path string, archival bool) (storage.Initializer, error)
 		v, err := tx.Get([]byte("CardinalStorageVersion"))
 		if err == storage.ErrNotFound {
 			tx.Put([]byte("CardinalStorageVersion"), version)
-		} else {
+		} else if err == nil {
 			version = v
+		} else {
+			return err
 		}
-		return err
+		return nil
 	}); err != nil {
 		return nil, err
 	}

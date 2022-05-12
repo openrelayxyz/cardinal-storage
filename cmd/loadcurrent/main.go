@@ -25,7 +25,7 @@ func main() {
 
 	flag.CommandLine.Parse(os.Args[1:])
 
-	init, err := resolver.ResolveInitializer(os.Args[1], *archive)
+	init, err := resolver.ResolveInitializer(flag.CommandLine.Args()[0], *archive)
 	if err != nil {
 		panic(err.Error())
 	}
