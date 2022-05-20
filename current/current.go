@@ -203,7 +203,7 @@ func (s *currentStorage) AddBlock(hash, parentHash types.Hash, number uint64, we
 		return err
 	}
 	s.mut.Lock()
-	if s.layers[s.latestHash].weight().Cmp(newLayer.weight()) < 0 {
+	if parentHash == s.latestHash || s.layers[s.latestHash].weight().Cmp(newLayer.weight()) < 0 {
 		// TODO: Maybe need to use an atomic value for s.latestHash
 		log.Debug("New heaviest block", "hash", hash, "number", number, "oldweight", s.layers[s.latestHash].weight(), "newweight", newLayer.weight())
 		heightGauge.Update(int64(number))
