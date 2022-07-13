@@ -170,7 +170,7 @@ func (wb *badgerBatchWriter) Delete(key []byte) error {
 func (wb *badgerBatchWriter) Flush() error {
 	for k, v := range wb.reserves {
 		wb.wb.Set([]byte(k), v)
-		delete(wb, k)
+		delete(wb.reserves, k)
 	}
 	return wb.wb.Flush()
 }
