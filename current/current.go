@@ -545,21 +545,17 @@ func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[t
       delta.put(HashToNumKey(child.hash), numberBytes)
       delta.put(NumToHashKey(child.number()), child.hash[:])
       delta.put(ResumptionDataKey, child.resume)
-
       delta.put(LatestBlockHashKey, child.hash[:])
       delta.put(LatestBlockWeightKey, child.weight().Bytes())
-      for _, kv := range(child.updates) {
-        delta.put(DataKey(kv.Key), kv.Value)
-      }
       for _, deletKey := range(child.deletes) {
         iter := tr.Iterator(DataKey(deletKey))
         for iter.Next() {
-          // NOTE: Some database implementations may not like having keys deleted
-          // out of them while they're iterating over them. We may need to
-          // compile a list of keys to delete, then delete them after iterating.
           delta.delete(iter.Key())
         }
         iter.Close()
+      }
+      for _, kv := range(child.updates) {
+        delta.put(DataKey(kv.Key), kv.Value)
       }
       l.h = child.hash
       l.num = child.number()
