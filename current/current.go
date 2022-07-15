@@ -350,21 +350,21 @@ func (l *memoryLayer) blockInfo() (types.Hash, uint64, *big.Int, []byte) {
 }
 
 func (l *memoryLayer) get(key []byte, tr db.Transaction) ([]byte, error) {
-  if l.isDeleted(key) {
-    return []byte{}, storage.ErrNotFound
-  }
   if val, ok := l.updatesMap[string(key)]; ok {
     return val, nil
+  }
+  if l.isDeleted(key) {
+    return []byte{}, storage.ErrNotFound
   }
   return l.parent.get(key, tr)
 }
 
 func (l *memoryLayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) error) error {
-  if l.isDeleted(key) {
-    return storage.ErrNotFound
-  }
   if val, ok := l.updatesMap[string(key)]; ok {
     return fn(val)
+  }
+  if l.isDeleted(key) {
+    return storage.ErrNotFound
   }
   return l.parent.zeroCopyGet(key, tr, fn)
 }
@@ -425,21 +425,21 @@ type memtxlayer struct{
 }
 
 func (l *memtxlayer) get(key []byte, tr db.Transaction) ([]byte, error) {
-  if l.isDeleted(key) {
-    return []byte{}, storage.ErrNotFound
-  }
   if val, ok := l.updatesMap[string(key)]; ok {
     return val, nil
+  }
+  if l.isDeleted(key) {
+    return []byte{}, storage.ErrNotFound
   }
   return l.parent.get(key, tr)
 }
 
 func (l *memtxlayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) error) error {
-  if l.isDeleted(key) {
-    return storage.ErrNotFound
-  }
   if val, ok := l.updatesMap[string(key)]; ok {
     return fn(val)
+  }
+  if l.isDeleted(key) {
+    return storage.ErrNotFound
   }
   return l.parent.zeroCopyGet(key, tr, fn)
 }
