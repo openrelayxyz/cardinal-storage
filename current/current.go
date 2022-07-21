@@ -368,21 +368,21 @@ func (l *memoryLayer) blockInfo() (types.Hash, uint64, *big.Int, []byte) {
 }
 
 func (l *memoryLayer) get(key []byte, tr db.Transaction) ([]byte, error) {
-	if l.isDeleted(key) {
-		return []byte{}, storage.ErrNotFound
-	}
 	if val, ok := l.updatesMap[string(key)]; ok {
 		return val, nil
+	}
+	if l.isDeleted(key) {
+		return []byte{}, storage.ErrNotFound
 	}
 	return l.parent.get(key, tr)
 }
 
 func (l *memoryLayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) error) error {
-	if l.isDeleted(key) {
-		return storage.ErrNotFound
-	}
 	if val, ok := l.updatesMap[string(key)]; ok {
 		return fn(val)
+	}
+	if l.isDeleted(key) {
+		return storage.ErrNotFound
 	}
 	return l.parent.zeroCopyGet(key, tr, fn)
 }
@@ -442,21 +442,21 @@ type memtxlayer struct {
 }
 
 func (l *memtxlayer) get(key []byte, tr db.Transaction) ([]byte, error) {
-	if l.isDeleted(key) {
-		return []byte{}, storage.ErrNotFound
-	}
 	if val, ok := l.updatesMap[string(key)]; ok {
 		return val, nil
+	}
+	if l.isDeleted(key) {
+		return []byte{}, storage.ErrNotFound
 	}
 	return l.parent.get(key, tr)
 }
 
 func (l *memtxlayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) error) error {
-	if l.isDeleted(key) {
-		return storage.ErrNotFound
-	}
 	if val, ok := l.updatesMap[string(key)]; ok {
 		return fn(val)
+	}
+	if l.isDeleted(key) {
+		return storage.ErrNotFound
 	}
 	return l.parent.zeroCopyGet(key, tr, fn)
 }
@@ -563,18 +563,15 @@ func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[t
 
 			delta.put(LatestBlockHashKey, child.hash[:])
 			delta.put(LatestBlockWeightKey, child.weight().Bytes())
-			for _, kv := range child.updates {
-				delta.put(DataKey(kv.Key), kv.Value)
-			}
 			for _, deletKey := range child.deletes {
 				iter := tr.Iterator(DataKey(deletKey))
 				for iter.Next() {
-					// NOTE: Some database implementations may not like having keys deleted
-					// out of them while they're iterating over them. We may need to
-					// compile a list of keys to delete, then delete them after iterating.
 					delta.delete(iter.Key())
 				}
 				iter.Close()
+			}
+			for _, kv := range child.updates {
+				delta.put(DataKey(kv.Key), kv.Value)
 			}
 			l.h = child.hash
 			l.num = child.number()

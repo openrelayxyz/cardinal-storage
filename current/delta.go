@@ -63,28 +63,32 @@ func loadDelta(block uint64, tr db.Transaction, bw db.BatchWriter) (*delta, erro
 }
 
 func (d *delta) put(key, value []byte) error {
-	v, err := d.tr.Get(key)
-	if err == storage.ErrNotFound {
-		d.Changes[string(key)] = deltaEntry{Delete: true}
-	} else if err == nil {
-		if !bytes.Equal(v, value) {
-			d.Changes[string(key)] = deltaEntry{Data: v}
+	if _, ok := d.Changes[string(key)]; !ok {
+		v, err := d.tr.Get(key)
+		if err == storage.ErrNotFound {
+			d.Changes[string(key)] = deltaEntry{Delete: true}
+		} else if err == nil {
+			if !bytes.Equal(v, value) {
+				d.Changes[string(key)] = deltaEntry{Data: v}
+			}
+			// We don't need to track an upsert if the value didn't actually change
+		} else {
+			log.Error("Database error tracking delta", "key", fmt.Sprintf("%x", key), "error", err)
 		}
-		// We don't need to track an upsert if the value didn't actually change
-	} else {
-		log.Error("Database error tracking delta", "key", fmt.Sprintf("%x", key), "error", err)
 	}
 	return d.bw.Put(key, value)
 }
 
 func (d *delta) delete(key []byte) error {
-	v, err := d.tr.Get(key)
-	if err == storage.ErrNotFound {
-		d.Changes[string(key)] = deltaEntry{Delete: true}
-	} else if err == nil {
-		d.Changes[string(key)] = deltaEntry{Data: v}
-	} else {
-		log.Error("Database error tracking delta delete", "key", fmt.Sprintf("%v", key), "error", err)
+	if _, ok := d.Changes[string(key)]; !ok {
+		v, err := d.tr.Get(key)
+		if err == storage.ErrNotFound {
+			d.Changes[string(key)] = deltaEntry{Delete: true}
+		} else if err == nil {
+			d.Changes[string(key)] = deltaEntry{Data: v}
+		} else {
+			log.Error("Database error tracking delta delete", "key", fmt.Sprintf("%v", key), "error", err)
+		}
 	}
 	return d.bw.Delete(key)
 }
