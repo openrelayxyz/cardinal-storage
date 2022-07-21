@@ -371,11 +371,6 @@ func (l *archiveLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, ma
 		bw.Put(HashToNumKey(h), numberBytes)
 		alteredKeys := make([][]byte, 0, len(child.updates)+len(child.deletes))
 
-		for _, kv := range child.updates {
-			childAl.put(kv.Key, kv.Value, tr, bw)
-			alteredKeys = append(alteredKeys, kv.Key)
-		}
-
 		for _, deletKey := range child.deletes {
 			iter := tr.Iterator(RangeKey(deletKey))
 			for iter.Next() {
@@ -385,6 +380,12 @@ func (l *archiveLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, ma
 			}
 			iter.Close()
 		}
+
+		for _, kv := range child.updates {
+			childAl.put(kv.Key, kv.Value, tr, bw)
+			alteredKeys = append(alteredKeys, kv.Key)
+		}
+
 		data, err := avro.Marshal(deltaSchema, alteredKeys)
 		if err != nil {
 			panic(err)
@@ -651,21 +652,21 @@ func (l *memoryLayer) blockInfo() (types.Hash, uint64, *big.Int, []byte) {
 }
 
 func (l *memoryLayer) get(key []byte, tr db.Transaction) ([]byte, error) {
-	if l.isDeleted(key) {
-		return []byte{}, storage.ErrNotFound
-	}
 	if val, ok := l.updatesMap[string(key)]; ok {
 		return val, nil
+	}
+	if l.isDeleted(key) {
+		return []byte{}, storage.ErrNotFound
 	}
 	return l.parent.get(key, tr)
 }
 
 func (l *memoryLayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) error) error {
-	if l.isDeleted(key) {
-		return storage.ErrNotFound
-	}
 	if val, ok := l.updatesMap[string(key)]; ok {
 		return fn(val)
+	}
+	if l.isDeleted(key) {
+		return storage.ErrNotFound
 	}
 	return l.parent.zeroCopyGet(key, tr, fn)
 }
@@ -725,21 +726,21 @@ type memtxlayer struct {
 }
 
 func (l *memtxlayer) get(key []byte, tr db.Transaction) ([]byte, error) {
-	if l.isDeleted(key) {
-		return []byte{}, storage.ErrNotFound
-	}
 	if val, ok := l.updatesMap[string(key)]; ok {
 		return val, nil
+	}
+	if l.isDeleted(key) {
+		return []byte{}, storage.ErrNotFound
 	}
 	return l.parent.get(key, tr)
 }
 
 func (l *memtxlayer) zeroCopyGet(key []byte, tr db.Transaction, fn func([]byte) error) error {
-	if l.isDeleted(key) {
-		return storage.ErrNotFound
-	}
 	if val, ok := l.updatesMap[string(key)]; ok {
 		return fn(val)
+	}
+	if l.isDeleted(key) {
+		return storage.ErrNotFound
 	}
 	return l.parent.zeroCopyGet(key, tr, fn)
 }
