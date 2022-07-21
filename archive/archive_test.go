@@ -1,4 +1,4 @@
-package current
+package archive
 
 import (
 	// "errors"
@@ -284,10 +284,10 @@ func TestDepth(t *testing.T) {
 		t.Errorf(err.Error())
 	}
 	if err := s.AddBlock(
-		types.HexToHash("g"),
+		types.HexToHash("10"),
 		types.HexToHash("f"),
-		5,
-		big.NewInt(5),
+		6,
+		big.NewInt(6),
 		[]storage.KeyValue{
 			storage.KeyValue{Key: []byte("Data"), Value: []byte("Something 2")},
 		},
@@ -297,13 +297,11 @@ func TestDepth(t *testing.T) {
 		t.Errorf(err.Error())
 	}
 
-	if err := s.View(types.HexToHash("a"), func(tr storage.Transaction) error { return nil }); err != storage.ErrLayerNotFound {
-		t.Errorf("Expected missing layer, got: %v", err)
-	}
+	// if err := s.View(types.HexToHash("a"), func(tr storage.Transaction) error { return nil }); err != storage.ErrLayerNotFound { t.Errorf( "Expected missing layer, got: %v", err )}
 	if err := s.View(types.HexToHash("b"), func(tr storage.Transaction) error { return nil }); err != storage.ErrLayerNotFound {
 		t.Errorf("Expected missing layer, got: %v", err)
 	}
-	if err := s.View(types.HexToHash("g"), func(tr storage.Transaction) error {
+	if err := s.View(types.HexToHash("10"), func(tr storage.Transaction) error {
 		if data, err := tr.Get([]byte("a")); err != nil {
 			t.Errorf("Error getting 'a': %v", err)
 			return err
@@ -314,7 +312,7 @@ func TestDepth(t *testing.T) {
 			t.Errorf("Error getting 'b': %v", err)
 			return err
 		} else if string(data) != "3" {
-			t.Errorf("Unexpected value for b")
+			t.Errorf("Unexpected value for b, wanted '3' got '%v'", string(data))
 		}
 		return nil
 	}); err != nil {

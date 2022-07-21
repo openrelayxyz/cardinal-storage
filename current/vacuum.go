@@ -1,10 +1,10 @@
 package current
 
 import (
-	"time"
 	"bytes"
-	"github.com/openrelayxyz/cardinal-storage/db"
 	log "github.com/inconshreveable/log15"
+	"github.com/openrelayxyz/cardinal-storage/db"
+	"time"
 )
 
 func (s *currentStorage) Vacuum(rollback uint64, gcTime time.Duration) {

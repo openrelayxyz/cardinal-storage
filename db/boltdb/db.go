@@ -5,8 +5,8 @@ import (
 	"os"
 
 	bolt "github.com/boltdb/bolt"
-	dbpkg "github.com/openrelayxyz/cardinal-storage/db"
 	log "github.com/inconshreveable/log15"
+	dbpkg "github.com/openrelayxyz/cardinal-storage/db"
 )
 
 type Database struct {
@@ -20,10 +20,10 @@ type boltTx struct {
 
 type boltWriteBatch struct {
 	btx *bolt.Tx
-	tx *boltTx
+	tx  *boltTx
 }
 
-func (wb *boltWriteBatch) Put(key, value[]byte) error {
+func (wb *boltWriteBatch) Put(key, value []byte) error {
 	return wb.tx.Put(key, value)
 }
 func (wb *boltWriteBatch) PutReserve(key []byte, size int) ([]byte, error) {
@@ -77,7 +77,9 @@ func (db *Database) View(fn func(dbpkg.Transaction) error) error {
 
 func (db *Database) BatchWriter() dbpkg.BatchWriter {
 	tx, err := db.db.Begin(true)
-	if err != nil { panic(err.Error()) }
+	if err != nil {
+		panic(err.Error())
+	}
 	b, _ := tx.CreateBucketIfNotExists([]byte("Cardinal"))
 	return &boltWriteBatch{
 		btx: tx,

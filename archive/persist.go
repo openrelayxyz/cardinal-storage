@@ -1,4 +1,4 @@
-package current
+package archive
 
 import (
 	"fmt"
@@ -144,8 +144,8 @@ func loadMap(m map[types.Hash]layer, persistenceData []byte, mut *sync.RWMutex) 
 		switch l := parent.(type) {
 		case *memoryLayer:
 			l.children[childHash] = child.(*memoryLayer)
-		case *diskLayer:
-			l.children[childHash] = child.(*memoryLayer)
+			// case *archiveLayer:
+			// 	l.children[childHash] = child.(*memoryLayer)
 		}
 		l := child.(*memoryLayer)
 		l.parent = parent
@@ -185,10 +185,6 @@ func loadMap(m map[types.Hash]layer, persistenceData []byte, mut *sync.RWMutex) 
 		for next := l; next != nil; next = next.parentLayer() {
 			switch v := next.(type) {
 			case *memoryLayer:
-				if v.depth < depth {
-					v.depth = depth
-				}
-			case *diskLayer:
 				if v.depth < depth {
 					v.depth = depth
 				}
