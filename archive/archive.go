@@ -98,7 +98,11 @@ func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (sto
 			}
 			delete(s.layers, s.lastStoredHash)
 		}
-		log.Debug("Initializing current storage", "hash", s.latestHash, "depth", maxDepth, "disknum", binary.BigEndian.Uint64(numBytes), "latestnum", s.layers[s.latestHash].number())
+		latestNum := uint64(0)
+		if v, ok := s.layers[s.latestHash]; ok {
+			latestNum = v.number()
+		}
+		log.Debug("Initializing current storage", "hash", s.latestHash, "depth", maxDepth, "disknum", binary.BigEndian.Uint64(numBytes), "latestnum", latestNum)
 		return nil
 	}); err != nil {
 		return nil, err
@@ -276,29 +280,26 @@ func (s *archiveStorage) latestWeight() *big.Int {
 // is an ancestor of the block at `LatestHash()`
 func (s *archiveStorage) NumberToHash(num uint64) (types.Hash, error) {
 	s.mut.RLock()
-	layer := s.layers[s.latestHash]
+	layer, err := s.getLayer(s.latestHash)
 	s.mut.RUnlock()
-	if layer.number() < num {
-		return types.Hash{}, fmt.Errorf("requested hash of future block %v", num)
-	}
-	for layer != nil && num < layer.number() {
-		layer = layer.parentLayer()
-	}
-	if layer == nil {
-		return types.Hash{}, fmt.Errorf("number %v not availale in history", num)
-	}
-	if layer.number() != num {
-		return types.Hash{}, fmt.Errorf("unknown error occurred finding block number %v (layer %v)", num, layer.number())
-	}
-	return layer.getHash(), nil
+	if err != nil { return types.Hash{}, err}
+	var hash types.Hash
+	err = s.db.View(func(tr db.Transaction) error {
+		hash = layer.numberToHash(num, tr)
+		return nil
+	})
+	return hash, err
 }
 
 // Resumption returns the cardinal-streams resumption token of the latest
 // block.
 func (s *archiveStorage) LatestBlock() (types.Hash, uint64, *big.Int, []byte) {
 	s.mut.RLock()
-	latest := s.layers[s.latestHash]
+	latest, ok := s.layers[s.latestHash]
 	s.mut.RUnlock()
+	if !ok {
+		return types.Hash{}, 0, new(big.Int), []byte{}
+	}
 	return latest.blockInfo()
 }
 
@@ -382,7 +383,9 @@ func (l *archiveLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, ma
 		}
 
 		for _, kv := range child.updates {
-			childAl.put(kv.Key, kv.Value, tr, bw)
+			if err := childAl.put(kv.Key, kv.Value, tr, bw); err != nil {
+				return err
+			}
 			alteredKeys = append(alteredKeys, kv.Key)
 		}
 
@@ -390,7 +393,9 @@ func (l *archiveLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, ma
 		if err != nil {
 			panic(err)
 		} // TODO: remove after we verify the schema works
-		bw.Put(RollbackKey(num), data)
+		if err := bw.Put(RollbackKey(num), data); err != nil {
+			return err
+		}
 		changes[h] = childAl
 		l.storage.lastStoredHash = h
 		return bw.Flush()
@@ -415,6 +420,9 @@ func (l *archiveLayer) getIndex(k []byte, tr db.Transaction) (uint64, error) {
 		}
 		// cardinality := bm.GetCardinality()
 		index = bm.Rank(l.num)
+		if !bm.Contains(l.num) {
+			index--
+		}
 		return nil
 	}); err != nil {
 		return 0, err
@@ -504,6 +512,7 @@ func (l *archiveLayer) weight() *big.Int {
 				return nil
 			})
 		}); err != nil {
+			log.Error("Error getting weight", "number", l.num, "err", err)
 			return nil
 		}
 	}

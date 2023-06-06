@@ -83,6 +83,7 @@ func (init *Initializer) SetBlockData(hash, parentHash types.Hash, number uint64
 	init.kv <- storage.KeyValue{Key: NumToHashKey(number - 1), Value: parentHash[:]}
 	init.kv <- storage.KeyValue{Key: LatestBlockHashKey, Value: hash.Bytes()}
 	init.kv <- storage.KeyValue{Key: LatestBlockWeightKey, Value: weight.Bytes()}
+	init.kv <- storage.KeyValue{Key: NumberToWeightKey(number), Value: weight.Bytes()}
 }
 
 func (init *Initializer) AddData(key, value []byte) {

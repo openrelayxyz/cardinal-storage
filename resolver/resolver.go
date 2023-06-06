@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	log "github.com/inconshreveable/log15"
 	"github.com/openrelayxyz/cardinal-types"
 	"github.com/openrelayxyz/cardinal-storage"
 	"github.com/openrelayxyz/cardinal-storage/current"
@@ -49,7 +50,7 @@ func ResolveInitializer(path string, archival bool) (storage.Initializer, error)
 	}
 	if fileInfo.IsDir() {
 		db, err = badgerdb.New(path)
-	} else {
+		} else {
 		db, err = boltdb.Open(path, 0600, nil)
 	}
 	if err != nil { return nil, err }
