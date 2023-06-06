@@ -1,7 +1,6 @@
 package resolver
 
 import (
-	log "github.com/inconshreveable/log15"
 	"github.com/openrelayxyz/cardinal-types"
 	"github.com/openrelayxyz/cardinal-storage"
 	"github.com/openrelayxyz/cardinal-storage/current"
