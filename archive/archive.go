@@ -51,7 +51,7 @@ func New(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) stora
 		maxDepth:       maxDepth,
 		lastStoredHash: types.Hash{},
 	}
-	s.layers[types.Hash{}] = &archiveLayer{storage: s, num: 0, w: new(big.Int), hash: types.Hash{}}
+	s.layers[types.Hash{}] = &archiveLayer{storage: s, num: 0, w: new(big.Int)}
 	return s
 }
 
@@ -102,7 +102,7 @@ func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (sto
 		if v, ok := s.layers[s.latestHash]; ok {
 			latestNum = v.number()
 		}
-		log.Debug("Initializing current storage", "hash", s.latestHash, "depth", maxDepth, "disknum", binary.BigEndian.Uint64(numBytes), "latestnum", latestNum)
+		log.Debug("Initializing archival storage", "hash", s.latestHash, "depth", maxDepth, "disknum", binary.BigEndian.Uint64(numBytes), "latestnum", latestNum)
 		return nil
 	}); err != nil {
 		return nil, err
@@ -298,6 +298,7 @@ func (s *archiveStorage) LatestBlock() (types.Hash, uint64, *big.Int, []byte) {
 	latest, ok := s.layers[s.latestHash]
 	s.mut.RUnlock()
 	if !ok {
+		log.Warn("Latest block info not available", "layers", len(s.layers), "lhash", s.latestHash)
 		return types.Hash{}, 0, new(big.Int), []byte{}
 	}
 	return latest.blockInfo()
@@ -340,6 +341,7 @@ func (l *archiveLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, ma
 	changes := make(map[types.Hash]layer)
 	deletes := make(map[types.Hash]struct{})
 	if child.number() != l.num+1 || l.storage.lastStoredHash != l.hash {
+		log.Warn("out of order consolidation", "ln", l.num, "lh", l.storage.lastStoredHash, "cn", child.number(), "ch", child.hash)
 		return nil, nil, fmt.Errorf("out of order consolidation")
 	}
 	for h, c := range l.children {
@@ -420,8 +422,8 @@ func (l *archiveLayer) getIndex(k []byte, tr db.Transaction) (uint64, error) {
 		}
 		// cardinality := bm.GetCardinality()
 		index = bm.Rank(l.num)
-		if !bm.Contains(l.num) {
-			index--
+		if index == 0 {
+			return storage.ErrNotFound
 		}
 		return nil
 	}); err != nil {
@@ -453,6 +455,7 @@ func (l *archiveLayer) put(k, v []byte, tr db.Transaction, bw db.BatchWriter) er
 		if err := bw.Put(rk, bmdata); err != nil {
 			return err
 		}
+		// log.Debug("Putting key", "k", string(k), "i", index, "b", l.num)
 		return bw.Put(DataKey(k, index), v)
 	}); err == storage.ErrNotFound {
 		// First occurrence of this key
@@ -464,6 +467,7 @@ func (l *archiveLayer) put(k, v []byte, tr db.Transaction, bw db.BatchWriter) er
 		if err := bw.Put(rk, bmdata); err != nil {
 			return err
 		}
+		// log.Debug("Putting key", "k", string(k), "i", 1, "b", l.num)
 		return bw.Put(DataKey(k, 1), v)
 	}
 	return nil
