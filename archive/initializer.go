@@ -1,7 +1,8 @@
-package current
+package archive
 
 import (
 	"encoding/binary"
+	"github.com/RoaringBitmap/roaring/roaring64"
 	log "github.com/inconshreveable/log15"
 	"github.com/openrelayxyz/cardinal-storage"
 	dbpkg "github.com/openrelayxyz/cardinal-storage/db"
@@ -10,9 +11,11 @@ import (
 )
 
 type Initializer struct {
-	db   dbpkg.Database
-	done chan struct{}
-	kv   chan storage.KeyValue
+	db     dbpkg.Database
+	done   chan struct{}
+	kv     chan storage.KeyValue
+	number uint64
+	bitmap []byte
 }
 
 func NewInitializer(db dbpkg.Database) *Initializer {
@@ -52,7 +55,7 @@ func NewInitializer(db dbpkg.Database) *Initializer {
 
 func (init *Initializer) Close() {
 	init.db.Update(func(tx dbpkg.Transaction) error {
-		return tx.Put([]byte("CardinalStorageVersion"), []byte("CurrentStorage1"))
+		return tx.Put([]byte("CardinalStorageVersion"), []byte("ArchiveStorage1"))
 	})
 	close(init.kv)
 	<-init.done
@@ -70,14 +73,20 @@ func (init *Initializer) SetBlockData(hash, parentHash types.Hash, number uint64
 	binary.BigEndian.PutUint64(numberBytes, number)
 	parentNumberBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(parentNumberBytes, number-1)
+	init.number = number
+	bm := roaring64.BitmapOf(number)
+	bmdata, _ := bm.MarshalBinary()
+	init.bitmap = bmdata
 	init.kv <- storage.KeyValue{Key: HashToNumKey(hash), Value: numberBytes}
 	init.kv <- storage.KeyValue{Key: HashToNumKey(parentHash), Value: parentNumberBytes}
 	init.kv <- storage.KeyValue{Key: NumToHashKey(number), Value: hash[:]}
 	init.kv <- storage.KeyValue{Key: NumToHashKey(number - 1), Value: parentHash[:]}
 	init.kv <- storage.KeyValue{Key: LatestBlockHashKey, Value: hash.Bytes()}
 	init.kv <- storage.KeyValue{Key: LatestBlockWeightKey, Value: weight.Bytes()}
+	init.kv <- storage.KeyValue{Key: NumberToWeightKey(number), Value: weight.Bytes()}
 }
 
 func (init *Initializer) AddData(key, value []byte) {
-	init.kv <- storage.KeyValue{Key: DataKey(key), Value: value}
+	init.kv <- storage.KeyValue{Key: RangeKey(key), Value: init.bitmap}
+	init.kv <- storage.KeyValue{Key: DataKey(key, 0), Value: value}
 }

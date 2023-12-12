@@ -52,6 +52,12 @@ type Storage interface {
   Vacuum(rollback uint64, gcTime time.Duration)
 }
 
+type Initializer interface {
+	SetBlockData(hash, parentHash types.Hash, number uint64, weight *big.Int)
+	AddData(key, value []byte)
+	Close()
+}
+
 type Transaction interface {
   // Get returns the data stored at a given key.
   Get([]byte) ([]byte, error)

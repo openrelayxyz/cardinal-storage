@@ -1,4 +1,4 @@
-package current
+package archive
 
 import (
 	// "errors"
@@ -212,7 +212,7 @@ func TestDepth(t *testing.T) {
 		[][]byte{},
 		[]byte("0"),
 	); err != nil {
-		t.Errorf(err.Error())
+		t.Fatalf(err.Error())
 	}
 	if err := s.AddBlock(
 		types.HexToHash("b"),
@@ -227,7 +227,7 @@ func TestDepth(t *testing.T) {
 		[][]byte{},
 		[]byte("0"),
 	); err != nil {
-		t.Errorf(err.Error())
+		t.Fatalf(err.Error())
 	}
 	if err := s.AddBlock(
 		types.HexToHash("c"),
@@ -242,7 +242,7 @@ func TestDepth(t *testing.T) {
 		[][]byte{},
 		[]byte("0"),
 	); err != nil {
-		t.Errorf(err.Error())
+		t.Fatalf(err.Error())
 	}
 	if err := s.AddBlock(
 		types.HexToHash("d"),
@@ -255,7 +255,7 @@ func TestDepth(t *testing.T) {
 		[][]byte{},
 		[]byte("0"),
 	); err != nil {
-		t.Errorf(err.Error())
+		t.Fatalf(err.Error())
 	}
 	if err := s.AddBlock(
 		types.HexToHash("e"),
@@ -268,7 +268,7 @@ func TestDepth(t *testing.T) {
 		[][]byte{},
 		[]byte("0"),
 	); err != nil {
-		t.Errorf(err.Error())
+		t.Fatalf(err.Error())
 	}
 	if err := s.AddBlock(
 		types.HexToHash("f"),
@@ -281,44 +281,42 @@ func TestDepth(t *testing.T) {
 		[][]byte{},
 		[]byte("0"),
 	); err != nil {
-		t.Errorf(err.Error())
+		t.Fatalf(err.Error())
 	}
 	if err := s.AddBlock(
-		types.HexToHash("g"),
+		types.HexToHash("10"),
 		types.HexToHash("f"),
-		5,
-		big.NewInt(5),
+		6,
+		big.NewInt(6),
 		[]storage.KeyValue{
 			storage.KeyValue{Key: []byte("Data"), Value: []byte("Something 2")},
 		},
 		[][]byte{},
 		[]byte("0"),
 	); err != nil {
-		t.Errorf(err.Error())
+		t.Fatalf(err.Error())
 	}
 
-	if err := s.View(types.HexToHash("a"), func(tr storage.Transaction) error { return nil }); err != storage.ErrLayerNotFound {
-		t.Errorf("Expected missing layer, got: %v", err)
-	}
+	// if err := s.View(types.HexToHash("a"), func(tr storage.Transaction) error { return nil }); err != storage.ErrLayerNotFound { t.Fatalf( "Expected missing layer, got: %v", err )}
 	if err := s.View(types.HexToHash("b"), func(tr storage.Transaction) error { return nil }); err != storage.ErrLayerNotFound {
-		t.Errorf("Expected missing layer, got: %v", err)
+		t.Fatalf("Expected missing layer, got: %v", err)
 	}
-	if err := s.View(types.HexToHash("g"), func(tr storage.Transaction) error {
+	if err := s.View(types.HexToHash("10"), func(tr storage.Transaction) error {
 		if data, err := tr.Get([]byte("a")); err != nil {
-			t.Errorf("Error getting 'a': %v", err)
+			t.Fatalf("Error getting 'a': %v", err)
 			return err
 		} else if string(data) != "1" {
-			t.Errorf("Unexpected value for a")
+			t.Fatalf("Unexpected value for a")
 		}
 		if data, err := tr.Get([]byte("b")); err != nil {
-			t.Errorf("Error getting 'b': %v", err)
+			t.Fatalf("Error getting 'b': %v", err)
 			return err
 		} else if string(data) != "3" {
-			t.Errorf("Unexpected value for b")
+			t.Fatalf("Unexpected value for b, wanted '3' got '%v'", string(data))
 		}
 		return nil
 	}); err != nil {
-		t.Errorf(err.Error())
+		t.Fatalf(err.Error())
 	}
 	if err := s.Rollback(1); err != nil {
 		t.Fatalf(err.Error())
@@ -327,11 +325,11 @@ func TestDepth(t *testing.T) {
 		if data, err := tr.Get([]byte("b")); err != nil {
 			return err
 		} else if string(data) != "2" {
-			t.Errorf("Unexpected value for a: %v", string(data))
+			t.Fatalf("Unexpected value for a: %v", string(data))
 		}
 		return nil
 	}); err != nil {
-		t.Errorf("Unexpected error: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 }
 
