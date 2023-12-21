@@ -295,10 +295,10 @@ func (s *archiveStorage) NumberToHash(num uint64) (types.Hash, error) {
 // block.
 func (s *archiveStorage) LatestBlock() (types.Hash, uint64, *big.Int, []byte) {
 	s.mut.RLock()
-	latest, ok := s.layers[s.latestHash]
+	latest, err := s.getLayer(s.latestHash)
 	s.mut.RUnlock()
-	if !ok {
-		log.Warn("Latest block info not available", "layers", len(s.layers), "lhash", s.latestHash)
+	if err != nil {
+		log.Warn("Latest block info not available", "layers", len(s.layers), "lhash", s.latestHash, "err", err)
 		return types.Hash{}, 0, new(big.Int), []byte{}
 	}
 	return latest.blockInfo()
