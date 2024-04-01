@@ -43,16 +43,20 @@ type delta struct {
 	Changes map[string]deltaEntry `avro:"changes"`
 }
 
-func newDelta(tr db.Transaction, bw db.BatchWriter) *delta {
+func newDelta(tr db.Transaction, bw db.BatchWriter, storeDeltas bool) *delta {
+	var changes map[string]deltaEntry
+	if storeDeltas {
+		changes = make(map[string]deltaEntry)
+	}
 	return &delta{
 		tr:      tr,
 		bw:      bw,
-		Changes: make(map[string]deltaEntry),
+		Changes: changes,
 	}
 }
 
-func loadDelta(block uint64, tr db.Transaction, bw db.BatchWriter) (*delta, error) {
-	d := newDelta(tr, bw)
+func loadDelta(block uint64, tr db.Transaction, bw db.BatchWriter, storeDelta bool) (*delta, error) {
+	d := newDelta(tr, bw, storeDelta)
 	d.number = block
 	data, err := d.tr.Get(RollbackDelta(block))
 	if err != nil {
@@ -63,43 +67,49 @@ func loadDelta(block uint64, tr db.Transaction, bw db.BatchWriter) (*delta, erro
 }
 
 func (d *delta) put(key, value []byte) error {
-	if _, ok := d.Changes[string(key)]; !ok {
-		v, err := d.tr.Get(key)
-		if err == storage.ErrNotFound {
-			d.Changes[string(key)] = deltaEntry{Delete: true}
-		} else if err == nil {
-			if !bytes.Equal(v, value) {
-				d.Changes[string(key)] = deltaEntry{Data: v}
+	if d.Changes != nil {
+		if _, ok := d.Changes[string(key)]; !ok {
+			v, err := d.tr.Get(key)
+			if err == storage.ErrNotFound {
+				d.Changes[string(key)] = deltaEntry{Delete: true}
+			} else if err == nil {
+				if !bytes.Equal(v, value) {
+					d.Changes[string(key)] = deltaEntry{Data: v}
+				}
+				// We don't need to track an upsert if the value didn't actually change
+			} else {
+				log.Error("Database error tracking delta", "key", fmt.Sprintf("%x", key), "error", err)
 			}
-			// We don't need to track an upsert if the value didn't actually change
-		} else {
-			log.Error("Database error tracking delta", "key", fmt.Sprintf("%x", key), "error", err)
 		}
 	}
 	return d.bw.Put(key, value)
 }
 
 func (d *delta) delete(key []byte) error {
-	if _, ok := d.Changes[string(key)]; !ok {
-		v, err := d.tr.Get(key)
-		if err == storage.ErrNotFound {
-			d.Changes[string(key)] = deltaEntry{Delete: true}
-		} else if err == nil {
-			d.Changes[string(key)] = deltaEntry{Data: v}
-		} else {
-			log.Error("Database error tracking delta delete", "key", fmt.Sprintf("%v", key), "error", err)
+	if d.Changes != nil {
+		if _, ok := d.Changes[string(key)]; !ok {
+			v, err := d.tr.Get(key)
+			if err == storage.ErrNotFound {
+				d.Changes[string(key)] = deltaEntry{Delete: true}
+			} else if err == nil {
+				d.Changes[string(key)] = deltaEntry{Data: v}
+			} else {
+				log.Error("Database error tracking delta delete", "key", fmt.Sprintf("%v", key), "error", err)
+			}
 		}
 	}
 	return d.bw.Delete(key)
 }
 
 func (d *delta) finalize(blockNumber uint64) error {
-	data, err := avro.Marshal(deltaSchema, d)
-	if err != nil {
-		return err
-	}
-	if err := d.bw.Put(RollbackDelta(blockNumber), data); err != nil {
-		return err
+	if d.Changes != nil {
+		data, err := avro.Marshal(deltaSchema, d)
+		if err != nil {
+			return err
+		}
+		if err := d.bw.Put(RollbackDelta(blockNumber), data); err != nil {
+			return err
+		}
 	}
 	return d.bw.Flush()
 }

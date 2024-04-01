@@ -53,6 +53,7 @@ func New(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) stora
 		children:    make(map[types.Hash]*memoryLayer),
 		depth:       0,
 		maxDepth:    maxDepth,
+		storeDeltas: true,
 	}
 	return s
 }
@@ -71,6 +72,13 @@ func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (sto
 		whitelist: whitelist,
 	}
 	if err := sdb.View(func(tr db.Transaction) error {
+		recordDeltasBytes, err := tr.Get([]byte("CardinalStorageRecordDeltas"));
+		recordDeltas := true
+		if err != nil {
+			if len(recordDeltasBytes) > 0 && recordDeltasBytes[0] == 0 {
+				recordDeltas = false
+			}
+		}
 		hashBytes, err := tr.Get(LatestBlockHashKey)
 		if err != nil {
 			log.Error("Error getting latest block hash")
@@ -102,6 +110,7 @@ func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (sto
 			depth:       0,
 			maxDepth:    maxDepth,
 			resume:      resumptionBytes,
+			storeDeltas: recordDeltas,
 		}
 		if persistenceData, err := tr.Get(MemoryPersistenceKey); err != nil {
 			log.Warn("Error reading memory layer. Using disk layer.", "error", err)
@@ -117,6 +126,7 @@ func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (sto
 		log.Debug("Initializing current storage", "hash", s.latestHash, "depth", maxDepth, "disknum", binary.BigEndian.Uint64(numBytes), "latestnum", s.layers[s.latestHash].number())
 		return nil
 	}); err != nil {
+		sdb.Close()
 		return nil, err
 	}
 	return s, nil
@@ -533,6 +543,7 @@ type diskLayer struct {
 	depth       int64
 	maxDepth    int64
 	resume      []byte
+	storeDeltas bool
 }
 
 func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[types.Hash]struct{}, error) {
@@ -554,7 +565,7 @@ func (l *diskLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, map[t
 		deletes[l.getHash()] = struct{}{}
 		changes[child.hash] = l
 		if err := l.storage.db.View(func(tr db.Transaction) error {
-			delta := newDelta(tr, l.storage.db.BatchWriter())
+			delta := newDelta(tr, l.storage.db.BatchWriter(), l.storeDeltas)
 			numberBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(numberBytes, child.number())
 			delta.put(HashToNumKey(child.hash), numberBytes)
@@ -642,7 +653,7 @@ func (l *diskLayer) rollback(number uint64) error {
 	l.depth = 0
 	for l.num > number {
 		if err := l.storage.db.View(func(tr db.Transaction) error {
-			d, err := loadDelta(l.num, tr, l.storage.db.BatchWriter())
+			d, err := loadDelta(l.num, tr, l.storage.db.BatchWriter(), l.storeDeltas)
 			if err != nil {
 				return fmt.Errorf("error loading delta: %v", err)
 			}
