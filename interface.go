@@ -46,10 +46,19 @@ type Storage interface {
   // Close cleanly shuts down the storage interface.
   Close() error
 
+	RegisterWaiter(Waiter, time.Duration)
+
   // Vacuum frees space in the database. `rollback` indicates the number of
   // deltas to retain to support rollbacks, while gcTime is the an approximate
   // amount of time to spend on database level compaction.
   Vacuum(rollback uint64, gcTime time.Duration)
+
+	//
+}
+
+type Waiter interface {
+	WaitForHash(types.Hash, time.Duration)
+	WaitForNumber(int64, time.Duration)
 }
 
 type Initializer interface {
@@ -76,3 +85,7 @@ type Transaction interface {
 
 
 var EmptyHash = types.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+type NullWaiter struct{}
+
+func (NullWaiter) WaitForHash(types.Hash, time.Duration) {}
+func (NullWaiter) WaitForNumber(int64, time.Duration) {}

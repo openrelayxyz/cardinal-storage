@@ -7,6 +7,7 @@ import (
 	bolt "github.com/boltdb/bolt"
 	log "github.com/inconshreveable/log15"
 	dbpkg "github.com/openrelayxyz/cardinal-storage/db"
+	"github.com/openrelayxyz/cardinal-storage"
 )
 
 type Database struct {
@@ -101,6 +102,9 @@ func (db *Database) Vacuum() bool {
 
 func (tx *boltTx) Get(key []byte) ([]byte, error) {
 	item := tx.bk.Get(key)
+	if item == nil {
+		return nil, storage.ErrNotFound
+	}
 	return item, nil
 }
 
