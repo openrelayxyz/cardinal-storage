@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"time"
 	// "io"
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/hamba/avro"
@@ -31,6 +32,8 @@ type archiveStorage struct {
 	mut            sync.RWMutex
 	wlock          sync.Mutex
 	maxDepth       int64
+	waiter         storage.Waiter
+	waittime       time.Duration
 }
 
 // New starts a archiveStorage instance from an empty database.
@@ -50,6 +53,7 @@ func New(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) stora
 		whitelist:      whitelist,
 		maxDepth:       maxDepth,
 		lastStoredHash: types.Hash{},
+		waiter:         storage.NullWaiter{},
 	}
 	s.layers[types.Hash{}] = &archiveLayer{storage: s, num: 0, w: new(big.Int)}
 	return s
@@ -68,6 +72,7 @@ func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (sto
 		layers:    make(map[types.Hash]layer),
 		whitelist: whitelist,
 		maxDepth:  maxDepth,
+		waiter:    storage.NullWaiter{},
 	}
 	if err := sdb.View(func(tr db.Transaction) error {
 		hashBytes, err := tr.Get(LatestBlockHashKey)
@@ -110,6 +115,11 @@ func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (sto
 	return s, nil
 }
 
+func (s *archiveStorage) RegisterWaiter(w storage.Waiter, d time.Duration) {
+	s.waiter = w
+	s.waittime = d
+}
+
 func (s *archiveStorage) Close() error {
 	s.wlock.Lock() // We're closing, so we're never going to unlock this
 	log.Info("Shutting down storage engine")
@@ -134,6 +144,12 @@ func (s *archiveStorage) View(hash types.Hash, fn func(storage.Transaction) erro
 	s.mut.RLock()
 	defer once.Do(s.mut.RUnlock) // defer in case there's a DB error for the view. Use once so we don't multiply unlock
 	layer, err := s.getLayer(hash)
+	if err == storage.ErrNotFound {
+		s.mut.RUnlock()
+		s.waiter.WaitForHash(hash, s.waittime)
+		s.mut.RLock()
+		layer, err = s.getLayer(hash)
+	}
 	switch err {
 	case nil:
 	case storage.ErrNotFound:
@@ -282,6 +298,12 @@ func (s *archiveStorage) NumberToHash(num uint64) (types.Hash, error) {
 	s.mut.RLock()
 	layer, err := s.getLayer(s.latestHash)
 	s.mut.RUnlock()
+	if layer.number() < num {
+		s.waiter.WaitForNumber(int64(num), s.waittime)
+		s.mut.RLock()
+		layer, err = s.getLayer(s.latestHash)
+		s.mut.RUnlock()
+	}
 	if err != nil { return types.Hash{}, err}
 	var hash types.Hash
 	err = s.db.View(func(tr db.Transaction) error {

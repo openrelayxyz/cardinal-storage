@@ -2,6 +2,7 @@ package current
 
 import (
 	"bytes"
+	"time"
 	"encoding/binary"
 	"fmt"
 	// "io"
@@ -27,6 +28,8 @@ type currentStorage struct {
 	whitelist  map[uint64]types.Hash
 	mut        sync.RWMutex
 	wlock      sync.Mutex
+	waiter     storage.Waiter
+	waittime   time.Duration
 }
 
 // New starts a currentStorage instance from an empty database.
@@ -44,6 +47,7 @@ func New(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) stora
 		db:        sdb,
 		layers:    make(map[types.Hash]layer),
 		whitelist: whitelist,
+		waiter:    storage.NullWaiter{},
 	}
 	s.layers[types.Hash{}] = &diskLayer{
 		storage:     s,
@@ -69,6 +73,7 @@ func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (sto
 		db:        sdb,
 		layers:    make(map[types.Hash]layer),
 		whitelist: whitelist,
+		waiter:    storage.NullWaiter{},
 	}
 	if err := sdb.View(func(tr db.Transaction) error {
 		hashBytes, err := tr.Get(LatestBlockHashKey)
@@ -122,6 +127,11 @@ func Open(sdb db.Database, maxDepth int64, whitelist map[uint64]types.Hash) (sto
 	return s, nil
 }
 
+func (s *currentStorage) RegisterWaiter(w storage.Waiter, d time.Duration) {
+	s.waiter = w
+	s.waittime = d
+}
+
 func (s *currentStorage) Close() error {
 	s.wlock.Lock() // We're closing, so we're never going to unlock this
 	log.Info("Shutting down storage engine")
@@ -147,7 +157,13 @@ func (s *currentStorage) View(hash types.Hash, fn func(storage.Transaction) erro
 	defer once.Do(s.mut.RUnlock) // defer in case there's a DB error for the view. Use once so we don't multiply unlock
 	layer, ok := s.layers[hash]
 	if !ok {
-		return storage.ErrLayerNotFound
+		s.mut.RUnlock()
+		s.waiter.WaitForHash(hash, s.waittime)
+		s.mut.RLock()
+		layer, ok = s.layers[hash]
+		if !ok {
+			return storage.ErrLayerNotFound
+		}			
 	}
 	txlayer := layer.tx()
 
@@ -263,6 +279,12 @@ func (s *currentStorage) NumberToHash(num uint64) (types.Hash, error) {
 	s.mut.RLock()
 	layer := s.layers[s.latestHash]
 	s.mut.RUnlock()
+	if layer.number() < num {
+		s.waiter.WaitForNumber(int64(num), s.waittime)
+		s.mut.RLock()
+		layer = s.layers[s.latestHash]
+		s.mut.RUnlock()
+	}
 	if layer.number() < num {
 		return types.Hash{}, fmt.Errorf("requested hash of future block %v", num)
 	}
