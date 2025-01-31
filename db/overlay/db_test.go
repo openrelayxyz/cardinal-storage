@@ -109,6 +109,38 @@ func TestAlterGetTx(t *testing.T) {
 		t.Fatalf("Expected failure")
 	}
 }
+func TestCacheHit(t *testing.T) {
+	underlay := mem.NewMemoryDatabase(1024)
+	err := underlay.Update(func(tx dbpkg.Transaction) error {
+		return tx.Put([]byte("Hello"), []byte("World"))
+	})
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	hits := overlayHitMeter.Count()
+	overlay := mem.NewMemoryDatabase(1024)
+	db := NewOverlayDatabase(underlay, overlay, true)
+	db.View(func(tx dbpkg.Transaction) error {
+		_, err := tx.Get([]byte("Hello"))
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if overlayHitMeter.Count() != hits {
+		t.Errorf("Unexpected hit")
+	}
+	db.View(func(tx dbpkg.Transaction) error {
+		_, err := tx.Get([]byte("Hello"))
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if overlayHitMeter.Count() <= hits {
+		t.Errorf("Expected hit")
+	}
+}
 func TestIterTx(t *testing.T) {
 	underlay := mem.NewMemoryDatabase(1024)
 	overlay := mem.NewMemoryDatabase(1024)

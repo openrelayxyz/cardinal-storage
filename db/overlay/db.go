@@ -2,6 +2,7 @@ package overlay
 
 import (
 	"bytes"
+	"sync/atomic"
 	"github.com/openrelayxyz/cardinal-storage"
 	"github.com/openrelayxyz/cardinal-types/metrics"
 	dbpkg "github.com/openrelayxyz/cardinal-storage/db"
@@ -10,6 +11,7 @@ import (
 var (
 	overlayHitMeter  = metrics.NewMinorMeter("/storage/overlay/hit")
 	overlayMissMeter  = metrics.NewMinorMeter("/storage/overlay/miss")
+	overlayCacheHistogram = metrics.NewMinorHistogram("/storage/overlay/txhit")
 )
 
 // Database: The overlay database will return values from the overlay if
@@ -33,9 +35,11 @@ func NewOverlayDatabase(underlay, overlay dbpkg.Database, cache bool) dbpkg.Data
 
 // View invokes a closure, providing a read-only transaction.
 func (db *Database) View(fn func(dbpkg.Transaction) error) error {
-	return db.overlay.View(func(otx dbpkg.Transaction) error {
+	return db.overlay.Update(func(otx dbpkg.Transaction) error {
 		return db.underlay.View(func(utx dbpkg.Transaction) error {
-			return fn(&overlayTransaction{otx, utx, db.cache})
+			tx := &overlayTransaction{otx, utx, db.cache, true, new(int64), new(int64)}
+			defer tx.writeMetrics()
+			return fn(tx)
 		})
 	})
 }
@@ -44,7 +48,9 @@ func (db *Database) View(fn func(dbpkg.Transaction) error) error {
 func (db *Database) Update(fn func(dbpkg.Transaction) error) error {
 	return db.overlay.Update(func(otx dbpkg.Transaction) error {
 		return db.underlay.View(func(utx dbpkg.Transaction) error {
-			return fn(&overlayTransaction{otx, utx, db.cache})
+			tx := &overlayTransaction{otx, utx, db.cache, false, new(int64), new(int64)}
+			defer tx.writeMetrics()
+			return fn(tx)
 		})
 	})
 }
@@ -66,11 +72,23 @@ type overlayTransaction struct {
 	overlaytx  dbpkg.Transaction
 	underlaytx dbpkg.Transaction
 	cache      bool
+	readonly   bool
+	hits       *int64
+	misses     *int64
 }
 
 var (
 	deletePrefix = []byte("DELETED/")
 )
+
+func (tx *overlayTransaction) writeMetrics() {
+	denominator := *tx.hits + *tx.misses
+	if denominator == 0 {
+		overlayCacheHistogram.Update(0)
+	} else {
+		overlayCacheHistogram.Update(100 * *tx.hits / (*tx.hits + *tx.misses))
+	}
+}
 
 func (tx *overlayTransaction) isDeleted(key []byte) bool {
 	_, err := tx.overlaytx.Get(append(deletePrefix, key...))
@@ -78,13 +96,16 @@ func (tx *overlayTransaction) isDeleted(key []byte) bool {
 }
 func (tx *overlayTransaction) Get(key []byte) ([]byte, error) {
 	if v, err := tx.overlaytx.Get(key); err == nil {
+		atomic.AddInt64(tx.hits, 1)
 		overlayHitMeter.Mark(1)
 		return v, err
 	}
 	if tx.isDeleted(key) {
+		atomic.AddInt64(tx.hits, 1)
 		overlayHitMeter.Mark(1)
 		return nil, storage.ErrNotFound
 	}
+	atomic.AddInt64(tx.misses, 1)
 	overlayMissMeter.Mark(1)
 	v, err := tx.underlaytx.Get(key)
 	if err == nil && tx.cache {
@@ -95,28 +116,34 @@ func (tx *overlayTransaction) Get(key []byte) ([]byte, error) {
 
 func (tx *overlayTransaction) ZeroCopyGet(key []byte, fn func([]byte) error) error {
 	if err := tx.overlaytx.ZeroCopyGet(key, fn); err == nil {
+		atomic.AddInt64(tx.hits, 1)
 		overlayHitMeter.Mark(1)
 		return err
 	}
 	if tx.isDeleted(key) {
+		atomic.AddInt64(tx.hits, 1)
 		overlayHitMeter.Mark(1)
 		return storage.ErrNotFound
 	}
+	atomic.AddInt64(tx.misses, 1)
 	overlayMissMeter.Mark(1)
 	return tx.underlaytx.ZeroCopyGet(key, fn)
 }
 
 func (tx *overlayTransaction) Put(key, value []byte) error {
+	if tx.readonly { return storage.ErrWriteToReadOnly }
 	tx.overlaytx.Delete(append(deletePrefix, key...))
 	return tx.overlaytx.Put(key, value)
 }
 
 func (tx *overlayTransaction) PutReserve(key []byte, size int) ([]byte, error) {
+	if tx.readonly { return nil, storage.ErrWriteToReadOnly }
 	tx.overlaytx.Delete(append(deletePrefix, key...))
 	return tx.overlaytx.PutReserve(key, size)
 }
 
 func (tx *overlayTransaction) Delete(key []byte) error {
+	if tx.readonly { return storage.ErrWriteToReadOnly }
 	err := tx.overlaytx.Delete(key)
 	tx.overlaytx.Put(append(deletePrefix, key...), []byte{0})
 	return err
