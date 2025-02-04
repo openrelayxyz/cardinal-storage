@@ -2,6 +2,7 @@ package overlay
 
 import (
 	"bytes"
+	"sync"
 	"sync/atomic"
 	"github.com/openrelayxyz/cardinal-storage"
 	"github.com/openrelayxyz/cardinal-types/metrics"
@@ -22,14 +23,41 @@ var (
 type Database struct {
 	overlay  dbpkg.Database
 	underlay dbpkg.Database
-	cache    bool
+	cache    *cacheData
+}
+
+type cacheData struct {
+	data map[string][]byte
+	lock sync.RWMutex
+}
+
+func (cd *cacheData) Get(key []byte) ([]byte, bool) {
+	cd.lock.RLock()
+	defer cd.lock.RUnlock()
+	v, ok := cd.data[string(key)]
+	return v, ok
+}
+
+func (cd *cacheData) Put(key, value []byte) {
+	cacheCopy := make([]byte, len(value))
+	copy(cacheCopy, value)
+	cd.lock.Lock()
+	cd.data[string(key)] = cacheCopy
+	cd.lock.Unlock()
+
 }
 
 func NewOverlayDatabase(underlay, overlay dbpkg.Database, cache bool) dbpkg.Database {
+
+	// DO NOT MERGE THIS! Metrics collection only!
+	var cacheMap *cacheData
+	if cache {
+		cacheMap = &cacheData{data: make(map[string][]byte)}
+	}
 	return &Database{
 		overlay: overlay,
 		underlay: underlay,
-		cache: cache,
+		cache: cacheMap,
 	}
 }
 
@@ -71,7 +99,7 @@ func (db *Database) Vacuum() bool {
 type overlayTransaction struct {
 	overlaytx  dbpkg.Transaction
 	underlaytx dbpkg.Transaction
-	cache      bool
+	cache      *cacheData
 	readonly   bool
 	hits       *int64
 	misses     *int64
@@ -105,11 +133,16 @@ func (tx *overlayTransaction) Get(key []byte) ([]byte, error) {
 		overlayHitMeter.Mark(1)
 		return nil, storage.ErrNotFound
 	}
+	if v, ok := tx.cache.Get(key); ok {
+		atomic.AddInt64(tx.hits, 1)
+		overlayHitMeter.Mark(1)
+		return v, nil
+	}
 	atomic.AddInt64(tx.misses, 1)
 	overlayMissMeter.Mark(1)
 	v, err := tx.underlaytx.Get(key)
-	if err == nil && tx.cache {
-		tx.overlaytx.Put(key, v)
+	if err == nil && tx.cache != nil {
+		tx.cache.Put(key, v)
 	}
 	return v, err
 }
@@ -125,9 +158,19 @@ func (tx *overlayTransaction) ZeroCopyGet(key []byte, fn func([]byte) error) err
 		overlayHitMeter.Mark(1)
 		return storage.ErrNotFound
 	}
+	if v, ok := tx.cache.Get(key); ok {
+		atomic.AddInt64(tx.hits, 1)
+		overlayHitMeter.Mark(1)
+		return fn(v)
+	}
+
 	atomic.AddInt64(tx.misses, 1)
 	overlayMissMeter.Mark(1)
-	return tx.underlaytx.ZeroCopyGet(key, fn)
+	cfn := func(value []byte) error {
+		tx.cache.Put(key, value)
+		return fn(value)
+	}
+	return tx.underlaytx.ZeroCopyGet(key, cfn)
 }
 
 func (tx *overlayTransaction) Put(key, value []byte) error {
