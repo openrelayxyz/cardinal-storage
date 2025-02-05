@@ -5,6 +5,7 @@ import (
 	"errors"
 	dbpkg "github.com/openrelayxyz/cardinal-storage/db"
 	"github.com/openrelayxyz/cardinal-storage/db/mem"
+	"github.com/openrelayxyz/cardinal-storage/db/badgerdb"
 	"testing"
 )
 
@@ -148,6 +149,7 @@ func TestIterTx(t *testing.T) {
 	db.Update(func(tx dbpkg.Transaction) error {
 		tx.Put([]byte("Hello"), []byte("World"))
 		iter := tx.Iterator([]byte("H"))
+		defer iter.Close()
 		if !iter.Next() {
 			t.Errorf("Iterator should have had next item")
 		}
@@ -164,6 +166,7 @@ func TestIterTx(t *testing.T) {
 	})
 	db.View(func(tx dbpkg.Transaction) error {
 		iter := tx.Iterator([]byte("H"))
+		defer iter.Close()
 		if !iter.Next() {
 			t.Errorf("Iterator should have had next item")
 		}
@@ -180,6 +183,55 @@ func TestIterTx(t *testing.T) {
 	})
 	db.View(func(tx dbpkg.Transaction) error {
 		iter := tx.Iterator([]byte("Q"))
+		defer iter.Close()
+		if iter.Next() {
+			t.Errorf("Iterator should have been exhausted")
+		}
+		return nil
+	})
+}
+func TestIterBadgerTx(t *testing.T) {
+	underlay, _ := badgerdb.New("")
+	overlay, _ := badgerdb.New("")
+	db := NewOverlayDatabase(underlay, overlay, true)
+	db.Update(func(tx dbpkg.Transaction) error {
+		tx.Put([]byte("Hello"), []byte("World"))
+		iter := tx.Iterator([]byte("H"))
+		defer iter.Close()
+		if !iter.Next() {
+			t.Errorf("Iterator should have had next item")
+		}
+		if string(iter.Key()) != "Hello" {
+			t.Errorf("Unexpected key '%v'", string(iter.Key()))
+		}
+		if string(iter.Value()) != "World" {
+			t.Errorf("Unexpected value '%v'", string(iter.Value()))
+		}
+		if iter.Next() {
+			t.Errorf("Iterator should have been exhausted")
+		}
+		return nil
+	})
+	db.View(func(tx dbpkg.Transaction) error {
+		iter := tx.Iterator([]byte("H"))
+		defer iter.Close()
+		if !iter.Next() {
+			t.Errorf("Iterator should have had next item")
+		}
+		if string(iter.Key()) != "Hello" {
+			t.Errorf("Unexpected key '%v'", string(iter.Key()))
+		}
+		if string(iter.Value()) != "World" {
+			t.Errorf("Unexpected value '%v'", string(iter.Value()))
+		}
+		if iter.Next() {
+			t.Errorf("Iterator should have been exhausted")
+		}
+		return nil
+	})
+	db.View(func(tx dbpkg.Transaction) error {
+		iter := tx.Iterator([]byte("Q"))
+		defer iter.Close()
 		if iter.Next() {
 			t.Errorf("Iterator should have been exhausted")
 		}
