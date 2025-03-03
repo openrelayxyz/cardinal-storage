@@ -603,6 +603,7 @@ func (l *archiveLayer) rollback(target uint64) error {
 	return l.storage.db.View(func(tr db.Transaction) error {
 		targetHash := l.numberToHash(target, tr)
 		bw := l.storage.db.BatchWriter()
+		bw.Put(LatestBlockHashKey, targetHash.Bytes())
 		for i := l.num; i > target; i-- {
 			data, err := tr.Get(RollbackKey(i))
 			if err != nil {
@@ -613,32 +614,39 @@ func (l *archiveLayer) rollback(target uint64) error {
 			if err != nil {
 				return err
 			}
+			blockHash := l.numberToHash(i, tr)
 			for _, k := range alteredKeys {
 				var index uint64
 				if err := tr.ZeroCopyGet(RangeKey(k), func(rangeValue []byte) error {
 					bm := new(roaring64.Bitmap)
 					if err := bm.UnmarshalBinary(rangeValue); err != nil {
+						bw.Cancel()
 						return err
 					}
 					index := bm.GetCardinality()
 					bm.Remove(index)
 					bmdata, err := bm.MarshalBinary()
 					if err != nil {
+						bw.Cancel()
 						return err
 					}
 					return bw.Put(RangeKey(k), bmdata)
 				}); err != nil {
+					bw.Cancel()
 					return err
 				}
 				bw.Delete(DataKey(k, index))
 			}
 			bw.Delete(RollbackKey(i))
+			bw.Delete(NumToHashKey(i))
+			bw.Delete(NumberToWeightKey(i))
+			bw.Delete(NumberToResumptionKey(i))
+			bw.Delete(HashToNumKey(blockHash))
 			log.Debug("Rolled back archive layer", "number", i)
 		}
 		// Make sure resumption can work after a rollback even if we don't process any new blocks.
-		bw.Put(LatestBlockHashKey, targetHash.Bytes())
 		bw.Delete(MemoryPersistenceKey)
-		return nil
+		return bw.Flush()
 	})
 }
 
