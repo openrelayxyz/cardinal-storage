@@ -255,15 +255,25 @@ func (s *archiveStorage) getLayer(h types.Hash) (layer, error) {
 func (s *archiveStorage) Rollback(number uint64) error {
 	// return fmt.Errorf("not implemented")
 	s.mut.Lock()
-	defer s.mut.Unlock() // I don't care if this locks things up for a while. Rollbacks should be very rare.
 	currentLayer := s.layers[s.latestHash]
+	s.mut.Unlock()
+	rbHash, err := s.NumberToHash(number)
+	if err != nil {
+		return err
+	}
+	s.mut.Lock()
+	defer s.mut.Unlock() // I don't care if this locks things up for a while. Rollbacks should be very rare.
 	for currentLayer.number() > number {
 		switch l := currentLayer.(type) {
 		case rollbackLayer:
 			err := l.rollback(number)
-			s.latestHash = l.getHash()
+			if err != nil {
+				return err
+			}
+			s.latestHash = rbHash
+			rbLayer, err := s.getLayer(rbHash)
 			s.layers = map[types.Hash]layer{
-				s.latestHash: l,
+				s.latestHash: rbLayer,
 			}
 			return err
 		case *memoryLayer:
@@ -620,8 +630,9 @@ func (l *archiveLayer) rollback(target uint64) error {
 					return err
 				}
 				bw.Delete(DataKey(k, index))
-				bw.Delete(RollbackKey(i))
 			}
+			bw.Delete(RollbackKey(i))
+			log.Debug("Rolled back archive layer", "number", i)
 		}
 		return nil
 	})
