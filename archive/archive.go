@@ -601,6 +601,7 @@ func (l *archiveLayer) persisted() bool {
 }
 func (l *archiveLayer) rollback(target uint64) error {
 	return l.storage.db.View(func(tr db.Transaction) error {
+		targetHash := l.numberToHash(target, tr)
 		bw := l.storage.db.BatchWriter()
 		for i := l.num; i > target; i-- {
 			data, err := tr.Get(RollbackKey(i))
@@ -634,6 +635,9 @@ func (l *archiveLayer) rollback(target uint64) error {
 			bw.Delete(RollbackKey(i))
 			log.Debug("Rolled back archive layer", "number", i)
 		}
+		// Make sure resumption can work after a rollback even if we don't process any new blocks.
+		bw.Put(LatestBlockHashKey, targetHash.Bytes())
+		bw.Delete(MemoryPersistenceKey)
 		return nil
 	})
 }
