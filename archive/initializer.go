@@ -77,10 +77,12 @@ func (init *Initializer) SetBlockData(hash, parentHash types.Hash, number uint64
 	bm := roaring64.BitmapOf(number)
 	bmdata, _ := bm.MarshalBinary()
 	init.bitmap = bmdata
+	if number > 0 {
+		init.kv <- storage.KeyValue{Key: HashToNumKey(parentHash), Value: parentNumberBytes}
+		init.kv <- storage.KeyValue{Key: NumToHashKey(number - 1), Value: parentHash[:]}
+	}
 	init.kv <- storage.KeyValue{Key: HashToNumKey(hash), Value: numberBytes}
-	init.kv <- storage.KeyValue{Key: HashToNumKey(parentHash), Value: parentNumberBytes}
 	init.kv <- storage.KeyValue{Key: NumToHashKey(number), Value: hash[:]}
-	init.kv <- storage.KeyValue{Key: NumToHashKey(number - 1), Value: parentHash[:]}
 	init.kv <- storage.KeyValue{Key: LatestBlockHashKey, Value: hash.Bytes()}
 	init.kv <- storage.KeyValue{Key: LatestBlockWeightKey, Value: weight.Bytes()}
 	init.kv <- storage.KeyValue{Key: NumberToWeightKey(number), Value: weight.Bytes()}
@@ -88,5 +90,5 @@ func (init *Initializer) SetBlockData(hash, parentHash types.Hash, number uint64
 
 func (init *Initializer) AddData(key, value []byte) {
 	init.kv <- storage.KeyValue{Key: RangeKey(key), Value: init.bitmap}
-	init.kv <- storage.KeyValue{Key: DataKey(key, 0), Value: value}
+	init.kv <- storage.KeyValue{Key: DataKey(key, 1), Value: value}
 }
