@@ -410,7 +410,9 @@ func (l *archiveLayer) consolidate(child *memoryLayer) (map[types.Hash]layer, ma
 			iter := tr.Iterator(RangeKey(deletKey))
 			for iter.Next() {
 				k := iter.Key()[1:] // remove the range prefix
-				childAl.delete(k, tr, bw)
+				if err := childAl.delete(k, tr, bw); err != nil {
+					log.Warn("Error deleting key", "key", k, "err", err.Error())
+				}
 				alteredKeys = append(alteredKeys, k)
 			}
 			iter.Close()
@@ -501,6 +503,9 @@ func (l *archiveLayer) put(k, v []byte, tr db.Transaction, bw db.BatchWriter) er
 		}
 		// log.Debug("Putting key", "k", string(k), "i", 1, "b", l.num)
 		return bw.Put(DataKey(k, 1), v)
+	} else if err != nil {
+		log.Warn("Error putting key", "key", k, "val", v, "err", err.Error())
+		// return err
 	}
 	return nil
 }
