@@ -40,6 +40,9 @@ func main() {
 		if !isPrefix {
 			r := Record{}
 			err = json.Unmarshal(record, &r)
+			if err != nil {
+				panic(err.Error())
+			}
 			if r.Hash != (types.Hash{}) {
 				log.Info("Recording block data", "hash", r.Hash, "num", r.Number)
 				init.SetBlockData(r.Hash, r.ParentHash, r.Number, r.Weight.ToInt())
