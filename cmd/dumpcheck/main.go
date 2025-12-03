@@ -3,19 +3,25 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 
-	"github.com/dgraph-io/badger/v3"
+	"github.com/openrelayxyz/cardinal-storage"
+	"github.com/openrelayxyz/cardinal-storage/resolver"
+	"github.com/openrelayxyz/cardinal-types"
+	"github.com/openrelayxyz/cardinal-types/hexutil"
 )
 
 type Record struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	Key        string        `json:"key"`
+	Value      hexutil.Bytes `json:"value"`
+	Hash       types.Hash    `json:"hash"`
+	ParentHash types.Hash    `json:"parentHash"`
+	Number     uint64        `json:"number"`
+	Weight     hexutil.Big   `json:"weight"`
 }
 
 func main() {
@@ -24,14 +30,15 @@ func main() {
 	}
 	dbPath := os.Args[1]
 
-	db, err := badger.Open(badger.DefaultOptions(dbPath).WithReadOnly(true))
+	db, err := resolver.ResolveStorage(dbPath, 128, nil)
 	if err != nil {
-		log.Fatalf("Failed to open BadgerDB: %v", err)
+		log.Fatalf("Failed to open storage: %v", err)
 	}
 	defer db.Close()
 
 	scanner := bufio.NewScanner(os.Stdin)
 	hasDiscrepancy := false
+	var hash types.Hash
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -46,17 +53,22 @@ func main() {
 			continue
 		}
 
-		decoded, err := hex.DecodeString(trimHexPrefix(rec.Value))
-		if err != nil {
-			log.Printf("Invalid hex for key %s: %v", rec.Key, err)
-			hasDiscrepancy = true
+		if rec.Hash != (types.Hash{}) {
+			hash = rec.Hash
 			continue
 		}
 
-		err = db.View(func(txn *badger.Txn) error {
-			dbKey := append([]byte("d"), []byte(rec.Key)...)
-			item, err := txn.Get(dbKey)
-			if err == badger.ErrKeyNotFound {
+		decoded := ([]byte)(rec.Value)
+
+		err = db.View(hash, func(txn storage.Transaction) error {
+			err := txn.ZeroCopyGet([]byte(rec.Key), func(value []byte) error {
+				if !bytes.Equal(value, decoded) {
+					log.Printf("Value mismatch for key: %s", rec.Key)
+					hasDiscrepancy = true
+				}
+				return nil
+			})
+			if err == storage.ErrNotFound {
 				log.Printf("Missing key: %s", rec.Key)
 				hasDiscrepancy = true
 				return nil
@@ -64,14 +76,7 @@ func main() {
 			if err != nil {
 				return fmt.Errorf("failed to get key %s: %w", rec.Key, err)
 			}
-
-			return item.Value(func(val []byte) error {
-				if !bytes.Equal(val, decoded) {
-					log.Printf("Value mismatch for key: %s", rec.Key)
-					hasDiscrepancy = true
-				}
-				return nil
-			})
+			return nil
 		})
 
 		if err != nil {
